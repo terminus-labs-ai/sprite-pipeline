@@ -106,8 +106,9 @@ class Project:
     def drive_key(self, anim, glb_bytes):
         """Cache key over the source file content, the action and the drive params (FR 10, dec: dec-629).
 
-        The GLB is hashed by content, so the key never changes when only the
-        file's path does.
+        The key hashes the GLB bytes and never names the file path, so copying
+        the GLB elsewhere leaves the cached drive valid. elev is 45, the value
+        in the current motion library.
         """
         payload = json.dumps(
             {"glb": hashlib.sha256(glb_bytes).hexdigest(), "action": anim.action,
@@ -171,12 +172,15 @@ def load_project(path, views_dir=VIEWS_DIR):
         if m in generate:
             raise ProjectError(f"{path.name}: directions.mirror.{m}: {m!r} is both generated and mirrored")
         if mirror[m] not in generate:
+            if mirror[m] not in KNOWN_DIRS:
+                raise ProjectError(f"{path.name}: directions.mirror.{m}: unknown direction {mirror[m]!r} for view {view}")
             raise ProjectError(f"{path.name}: directions.mirror.{m}: mirror source {mirror[m]!r} not in generate")
 
     # FR 4: a view with no turn prompt for a generated direction
     for x in generate:
         if x not in turn:
-            raise ProjectError(f"{path.name}: directions.generate: view {view} has no turn prompt for direction {x!r}")
+            raise ProjectError(f"{path.name}: directions.generate: view {view} has no turn prompt for direction {x!r} "
+                               f"(missing from views/{view}.yaml)")
 
     sprite = Sprite.from_dict(d.get("sprite") or {})
     naming = d.get("naming") or "{animation}_{dir}"
@@ -238,7 +242,7 @@ def load_project(path, views_dir=VIEWS_DIR):
             src_p = path.parent / src_p
         if not src_p.is_file():
             raise ProjectError(f"{path.name}: animations[{i}].source: {file_part} not found")
-        if not file_part.endswith(".glb"):
+        if src_p.suffix != ".glb":
             raise ProjectError(f"{path.name}: animations[{i}].source: {file_part} is not a .glb")
         frames = int(a.get("frames") or 0)
         if frames <= 0:

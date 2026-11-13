@@ -186,11 +186,15 @@ class TestDriveKey(unittest.TestCase):
         return project.load_project(write_project(t, base_project(frame_size=frame_size)))
 
     def test_r1_equal_when_only_the_path_changes(self):
+        # same GLB bytes copied to two paths, same action and params -> equal key
         p1, p2 = self._proj(), self._proj()
-        self.assertNotEqual(p1.animations[0].source, p2.animations[0].source)
-        b1, b2 = p1.animations[0].source.read_bytes(), p2.animations[0].source.read_bytes()
-        self.assertEqual(b1, b2)
-        self.assertEqual(p1.drive_key(p1.animations[0], b1), p2.drive_key(p2.animations[0], b2))
+        b = p1.animations[0].source.read_bytes()
+        other = p1.animations[0].source.parent.parent / "copy" / "ual.glb"
+        other.parent.mkdir(parents=True, exist_ok=True)
+        other.write_bytes(b)
+        self.assertNotEqual(p1.animations[0].source, other)
+        self.assertEqual(p1.drive_key(p1.animations[0], b),
+                         p1.drive_key(p1.animations[0], other.read_bytes()))
 
     def test_r2_differs_when_content_action_or_params_change(self):
         p = self._proj()
