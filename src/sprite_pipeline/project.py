@@ -249,12 +249,23 @@ def load_project(path, views_dir=VIEWS_DIR):
             raise ProjectError(f"{path.name}: animations[{i}].frames: must be positive")
         start = int(a.get("start") or 0)
         clip = a.get("clip_frames")
+        too_short = False
         if clip is None:
             clip = _clip_frames_default(start, frames)
         else:
             clip = int(clip)
             if clip % 4 != 1:
                 raise ProjectError(f"{path.name}: animations[{i}].clip_frames: {clip} is not 4n+1")
+            too_short = clip < start + frames
+        if too_short:
+            # an unlooped 'once' clip may end before start + frames (its cycle
+            # truncates); a looped one must hold the whole cycle
+            if a.get("loop", False):
+                raise ProjectError(f"{path.name}: animations[{i}].clip_frames: {clip} is shorter than start + frames "
+                                   f"({start} + {frames} = {start + frames})")
+            elif clip < frames:
+                raise ProjectError(f"{path.name}: animations[{i}].clip_frames: {clip} is shorter than frames "
+                                   f"({frames})")
         anim_dirs = a.get("directions") or list(generate)
         for x in anim_dirs:
             if x not in generate:

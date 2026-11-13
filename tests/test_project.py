@@ -104,13 +104,25 @@ class TestValidation(unittest.TestCase):
             self.assertIn("project.yaml: animations[0].clip_frames", str(cm.exception))
             self.assertIn("not 4n+1", str(cm.exception))
 
+    def test_r5_clip_frames_shorter_than_start_plus_frames(self):
+        # case table AC2-r5 second input: looped start 1, frames 22, clip_frames 21
+        with tempfile.TemporaryDirectory() as t:
+            text = base_project().replace("frames: 22, start: 1, clip_frames: 45",
+                                          "frames: 22, start: 1, clip_frames: 21, loop: true")
+            with self.assertRaises(project.ProjectError) as cm:
+                project.load_project(write_project(t, text))
+            self.assertIn("project.yaml: animations[0].clip_frames", str(cm.exception))
+            self.assertIn("shorter than start + frames", str(cm.exception))
+
     def test_r6_view_without_turn_prompt_for_generated_direction(self):
         with tempfile.TemporaryDirectory() as t:
             (Path(t) / "notest.yaml").write_text("turn:\n  se: kept facing the lower right\n")
-            p = write_project(t, "view: notest\ndirections:\n  generate: [s, se, e, ne, n]\n")
+            p = write_project(t, base_project().replace("  mirror: {sw: se, w: e, nw: ne}\n", ""))
             with self.assertRaises(project.ProjectError) as cm:
                 project.load_project(p, views_dir=Path(t))
-            self.assertIn("view notest has no turn prompt for direction 's'", str(cm.exception))
+            msg = str(cm.exception)
+            self.assertIn("view notest has no turn prompt for direction 's'", msg)
+            self.assertIn("views/notest.yaml", msg)  # names the direction and the view
 
     def test_r6_unknown_view_has_no_preset(self):
         with tempfile.TemporaryDirectory() as t:
