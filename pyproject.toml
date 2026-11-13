@@ -1,0 +1,19 @@
+[project]
+name = "sprite-pipeline"
+version = "0.1.0"
+description = "Character kit x shared motion library -> pixel-art sprite sets (Blender drive, Wan Animate 2 in ComfyUI, sprite-gen, pixelize, Godot 4 export)."
+requires-python = ">=3.12"
+dependencies = ["pillow>=11", "pyyaml>=6"]
+
+[project.scripts]
+sprite-pipeline = "sprite_pipeline.build:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sprite_pipeline"]
+
+[dependency-groups]
+dev = ["pytest>=8"]

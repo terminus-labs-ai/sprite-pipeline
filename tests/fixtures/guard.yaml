@@ -1,0 +1,28 @@
+# Character kit: generic corporate guard (made by swapping the character in Vexa's iso-se master with a FLUX.2-klein edit).
+name: guard
+pose_who: "a man"
+pose_strength: 0.75
+output_root: /data/artifacts/game-art/guard
+seed: 7
+frame_size: 704
+pixel_scale: 0.2023
+pixel_colors: 40
+accent_boost: 3
+palette: /data/artifacts/game-art/guard/master/iso-se.keyed.png
+look: "A corporate security guard, an adult man with a stocky build: short dark hair and a trimmed beard, a black cap, a navy-grey tactical uniform with a light grey armored vest, small amber reflective stripes on the shoulders, gloves, a baton holstered on his belt, dark trousers and boots. 2D game sprite art, hand-painted cel shading, bold dark outlines, crisp edges. Seen from a high fixed isometric camera looking down at him at about 45 degrees, small in the frame with empty space around him, full body always inside the frame."
+face: " He keeps his head up and his face clearly visible, eyes looking ahead in the direction he moves."
+face_dirs: [s, se, e]
+background: " Background description: the background is one perfectly flat uniform chroma-key green, no floor, no shadow, no shapes."
+refs:
+  s: guard-ref-s.png
+  se: guard-ref-se.png
+  e: guard-ref-e.png
+  ne: guard-ref-ne.png
+  n: guard-ref-n.png
+# Per-clip rerolls, keyed <move>-<dir>. punch-n still loses the cap at every seed tried (7, 8, 9); see PLAN-animation-pipeline.md.
+overrides:
+  punch-n:
+    seed: 9
+    extra: "His cap stays on his head and his hands are empty bare fists: he holds no sword, no weapon and no object."
+  sneak-se:
+    seed: 8
