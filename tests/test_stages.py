@@ -678,12 +678,10 @@ class TestExportProgram(Env):
                     im.save(out / f"{d}-run_{i:03d}.png")
             log = []
             ok = stages.do_export(ctx, "courier", moves, dirs, log, dry=False)
-            self.assertFalse(ok)
-            # sw mirrors se, so it is present; the other four real dirs were never built
-            missing = log[-1].split("missing: ")[1]
-            for m in ("run/n", "run/ne", "run/e", "run/w", "run/nw"):
-                self.assertIn(m, missing)
-            self.assertNotIn("run/sw", missing)
+            self.assertTrue(ok, log)  # export is driven by the project: generate+mirror only
+            # sw mirrors se, so it is present; no direction beyond the project's
+            # set (generate + mirror) is projected, so none is reported missing
+            self.assertNotIn("missing", log[-1])
             self.assertTrue((out / "atlas.png").is_file())
             self.assertTrue((out / "contact-sheet.png").is_file())
             text = (out / "sprite_frames.tres").read_text()
