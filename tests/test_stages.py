@@ -774,7 +774,7 @@ class TestExecution(Env):
         self.assertEqual(code, 0, out)
         argv = fake.calls[0]
         self.assertEqual(argv[:4],
-                         [sys.executable, "-m", "sprite_pipeline.comfy_run", "animate"])
+                         [sys.executable, "-m", "sprite_pipeline.comfy", "animate"])
         self.assertTrue(argv[argv.index("--video") + 1].startswith("drive-courier-run-s"))
         self.assertEqual(argv[argv.index("--copy-to") + 1], str(clip / "run-s.mp4"))
         self.assertEqual(argv[argv.index("--pose-strength") + 1], "0.75")
