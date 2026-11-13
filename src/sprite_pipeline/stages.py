@@ -14,6 +14,7 @@ the running interpreter environment's own entry point — never through a
 configured path. No stage shells out to POSIX-only commands such as cp
 (dec-617): the drive copy is a Python step.
 """
+import hashlib
 import json
 import os
 import shutil
@@ -88,10 +89,54 @@ class StageCtx:
     def sprite_out(self, char):
         return self.project.output_root() / char / "sprites"
 
-    # -- approval: this slice a character counts as approved when its five
-    # direction stills exist (slices 4-5 add still preparation and refs.approved)
+    # -- review stop (FR 8): refs.approved holds the hash of the direction
+    # stills approve wrote; the character is approved only while it matches
+    def refs_sheet(self, char):
+        return self.project.output_root() / char / "refs-sheet.png"
+
+    def refs_approved(self, char):
+        return self.project.output_root() / char / "refs.approved"
+
+    def missing_stills(self, char):
+        """The generated directions whose still file does not exist yet."""
+        return [d for d in self.project.generate
+                if not self.dir_still(char, d).is_file()]
+
+    def refs_hash(self, char):
+        """FR 8: sha256 over the direction stills' bytes, in generate order;
+        None while any of them is missing."""
+        if self.missing_stills(char):
+            return None
+        h = hashlib.sha256()
+        for d in self.project.generate:
+            h.update(self.dir_still(char, d).read_bytes())
+            h.update(b"\0")
+        return h.hexdigest()
+
+    def write_refs_approved(self, char, interim=False):
+        """`approve` writes refs.approved: the hash of the direction stills,
+        or (interim, slice-2 compatibility) the still filenames the approval
+        covers — the gate accepts it only while every named still exists."""
+        dst = self.refs_approved(char)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if interim:
+            dst.write_text("interim\n" + "".join(f"{d}\n" for d in self.project.generate))
+        else:
+            dst.write_text(self.refs_hash(char) + "\n")
+
     def is_approved(self, char):
-        return all(self.dir_still(char, d).is_file() for d in self.project.generate)
+        h = self.refs_hash(char)
+        f = self.refs_approved(char)
+        if h is None or not f.is_file():
+            return False
+        text = f.read_text().strip()
+        if text.startswith("interim"):
+            # slice-2 rule: approved while the named five stills exist
+            named = text.splitlines()[1:]
+            return (sorted(named) == sorted(self.project.generate)
+                    and all(self.dir_still(char, d).is_file()
+                            for d in self.project.generate))
+        return text == h
 
     # -- stage output predicates (skip-if-exists)
     def stage_done(self, stage, char=None, anim=None, d=None):
