@@ -3,6 +3,7 @@ the drive cache key (FR 10) and the example project carrying the motion library
 (FR 13 / AC10). No network, GPU, Blender or ComfyUI."""
 import dataclasses
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,7 +15,8 @@ from sprite_pipeline import project
 HERE = Path(__file__).resolve().parent
 FIXTURES = HERE / "fixtures" / "project"
 EXAMPLES = HERE.parent / "examples" / "isometric"
-MOTIONS = HERE.parent / "src" / "sprite_pipeline" / "motions.yaml"
+# motions.yaml lived here until sprite-pipeline-4 removed the kit CLI; the
+# cross-check reads it from the last commit that had it (b17638b)
 
 ASSET = (FIXTURES / "still" / "a.png").read_bytes()
 
@@ -255,7 +257,13 @@ class TestExampleProject(unittest.TestCase):
         return project.load_project(base / "project.yaml"), base
 
     def test_matches_the_motion_library_at_base(self):
-        motions = yaml.safe_load(MOTIONS.read_text())
+        # motions.yaml was removed with the kit CLI (sprite-pipeline-4); read
+        # it from the last commit that had it
+        text = subprocess.run(
+            ["git", "-C", str(HERE.parent), "show",
+             "b17638b:src/sprite_pipeline/motions.yaml"],
+            capture_output=True, text=True, check=True).stdout
+        motions = yaml.safe_load(text)
         # the table must track motions.yaml exactly (expected values, not code)
         for name, m in motions["moves"].items():
             exp = (m["action"], m["repeats"], m["pre"], m["post"], m["head_pitch"],

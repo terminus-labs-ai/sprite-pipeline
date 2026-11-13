@@ -9,9 +9,10 @@ atlas.png, Godot 4 SpriteFrames .tres, contact-sheet.png). Stages whose output
 exists are skipped unless --force.
 
 sprite-gen is a pinned package dependency (FR 12, dec-616): every sprite-gen
-command runs through the running interpreter, [sys.executable, "-m",
-"sprite_gen", ...], never through a configured path. No stage shells out to
-POSIX-only commands such as cp (dec-617): the drive copy is a Python step.
+command runs through the console script installed next to sys.executable —
+the running interpreter environment's own entry point — never through a
+configured path. No stage shells out to POSIX-only commands such as cp
+(dec-617): the drive copy is a Python step.
 """
 import json
 import os
