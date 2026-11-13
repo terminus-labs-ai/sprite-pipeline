@@ -193,8 +193,10 @@ class StageCtx:
     # -- programmatic in-process steps (never subprocesses)
     def run_program(self, stage, char, anim_names, dirs, log, dry):
         if stage == "export":
-            return do_export(self, char, [self.project.animation(n) for n in anim_names],
-                             dirs, log, dry)
+            # driven by the project: the generate+mirror direction order, the
+            # mirror flips and the naming pattern all come from it (FR 11)
+            from sprite_pipeline import export_godot
+            return export_godot.export_char(self, char, anim_names, log, dry)
         raise ValueError(stage)
 
 
@@ -234,96 +236,10 @@ def quote(a):
 
 
 # --------------------------------------------------------------------------- export
-
-def do_export(ctx, char, anims, dirs, log, dry):
-    """Mirror sw/w/nw frames, pack the atlas, write the Godot 4 SpriteFrames .tres
-    and a contact sheet. Export keeps today's behaviour this slice (slice 3
-    adds naming and mirror config). Returns True when nothing is missing."""
-    from PIL import Image
-    out = ctx.sprite_out(char)
-    frames, missing = {}, []
-    for anim in anims:
-        for d in EIGHT_DIRS:
-            src = MIRROR_OF.get(d, d)
-            if src not in dirs:
-                missing.append(f"{anim.name}/{d}")
-                continue
-            files = sorted(out.glob(f"{src}-{anim.name}_[0-9][0-9][0-9].png"))  # not the _sheet.png strips
-            if not files:
-                missing.append(f"{anim.name}/{d}")
-                continue
-            if d != src:
-                flips = []
-                for f in files:
-                    m = out / f"{d}-{anim.name}_{f.name.rsplit('_', 1)[1]}"
-                    if dry or not m.is_file():
-                        Image.open(f).convert("RGBA").transpose(Image.FLIP_LEFT_RIGHT).save(m)
-                    flips.append(m)
-                files = flips
-            frames[(anim.name, d)] = files
-
-    sizes = {im.size for fs in frames.values() for im in (Image.open(f) for f in fs)}
-    if not sizes:
-        return False
-    if len(sizes) != 1:
-        log.append(f"export: mixed frame sizes {sorted(sizes)} — cannot pack one atlas")
-        return False
-    w, h = sizes.pop()
-
-    rows = [(a, d) for a in anims for d in EIGHT_DIRS if (a.name, d) in frames]
-    ncol = max(len(frames[(a.name, d)]) for a, d in rows)
-    if not dry:
-        atlas = Image.new("RGBA", (ncol * w, len(rows) * h), (0, 0, 0, 0))
-        region = {}
-        for ri, (a, d) in enumerate(rows):
-            for i, f in enumerate(frames[(a.name, d)]):
-                im = Image.open(f).convert("RGBA")
-                atlas.paste(im, (i * w, ri * h), im)
-                region[(a.name, d, i)] = (i * w, ri * h, w, h)
-        atlas.save(out / "atlas.png")
-        anims_out = []
-        for (a, d) in rows:
-            regions = [region[(a.name, d, i)] for i in range(len(frames[(a.name, d)]))]
-            anims_out.append((f"{a.name}_{d}", a.loop, regions))
-        write_tres(out / "sprite_frames.tres", "atlas.png", anims_out, fps=ctx.project.sprite.fps)
-        sheet = Image.new("RGBA", (8 * w * 4, len(anims) * h * 4), (40, 42, 52, 255))
-        for ri, a in enumerate(anims):
-            for ci, d in enumerate(EIGHT_DIRS):
-                first = frames.get((a.name, d))
-                if not first:
-                    continue
-                im = Image.open(first[0]).convert("RGBA").resize((w * 4, h * 4), Image.NEAREST)
-                sheet.paste(im, (ci * w * 4, ri * h * 4), im)
-        sheet.save(out / "contact-sheet.png")
-    log.append(f"export: {len(rows)} of {len(anims) * 8} animations packed"
-               + (f", missing: {', '.join(missing)}" if missing else ""))
-    return not missing
-
-
-def write_tres(path, atlas_rel, anims, fps=30):
-    """Godot 4 SpriteFrames (format=3) over one atlas: one AtlasTexture per frame."""
-    sub_id = {}
-    subs = []
-    for name, loop, regions in anims:
-        for i, (x, y, fw, fh) in enumerate(regions):
-            sid = f"AtlasTexture_{name}_f{i}"
-            sub_id[(name, i)] = sid
-            subs.append(f'[sub_resource type="AtlasTexture" id="{sid}"]\n'
-                        f'atlas = ExtResource("1_atlas")\n'
-                        f'region = Rect2({x}, {y}, {fw}, {fh})')
-    anim_blocks = []
-    for name, loop, regions in anims:
-        frames = ", ".join('{\n"duration": 1.0,\n"texture": SubResource("%s")\n}' % sub_id[(name, i)]
-                           for i in range(len(regions)))
-        anim_blocks.append('{\n'
-                           f'"frames": [{frames}],\n'
-                           f'"loop": {"true" if loop else "false"},\n'
-                           f'"name": &"{name}",\n'
-                           f'"speed": {float(fps)}\n'
-                           '}')
-    body = ('[gd_resource type="SpriteFrames" load_steps=%d format=3]\n\n'
-            '[ext_resource type="Texture2D" path="%s" id="1_atlas"]\n\n'  # relative to the .tres
-            % (2 + len(subs), atlas_rel))  # 1 (this resource) + 1 ext + subs
-    body += "\n\n".join(subs)
-    body += "\n\n[resource]\nanimations = [%s]\n" % ", ".join(anim_blocks)
-    Path(path).write_text(body)
+#
+# The Godot 4 export (mirror flips, atlas.png, SpriteFrames .tres named by the
+# project's naming pattern, contact sheet) lives in export_godot.py, driven by
+# the project's directions.generate, directions.mirror and naming (FR 11, AC7);
+# StageCtx.run_program dispatches "export" to it. These re-exports keep
+# stages.do_export / stages.write_tres resolving for existing callers.
+from sprite_pipeline.export_godot import do_export, write_tres  # noqa: E402,F401
