@@ -117,7 +117,8 @@ class TestValidation(unittest.TestCase):
     def test_r6_view_without_turn_prompt_for_generated_direction(self):
         with tempfile.TemporaryDirectory() as t:
             (Path(t) / "notest.yaml").write_text("turn:\n  se: kept facing the lower right\n")
-            p = write_project(t, base_project().replace("  mirror: {sw: se, w: e, nw: ne}\n", ""))
+            p = write_project(t, base_project().replace("view: isometric", "view: notest")
+                              .replace("  mirror: {sw: se, w: e, nw: ne}\n", ""))
             with self.assertRaises(project.ProjectError) as cm:
                 project.load_project(p, views_dir=Path(t))
             msg = str(cm.exception)
@@ -205,8 +206,9 @@ class TestDriveKey(unittest.TestCase):
         other.parent.mkdir(parents=True, exist_ok=True)
         other.write_bytes(b)
         self.assertNotEqual(p1.animations[0].source, other)
+        self.assertNotIn("anims", p1.drive_key(p1.animations[0], b))  # the key is hex, not a path echo
         self.assertEqual(p1.drive_key(p1.animations[0], b),
-                         p1.drive_key(p1.animations[0], other.read_bytes()))
+                         p2.drive_key(p2.animations[0], other.read_bytes()))
 
     def test_r2_differs_when_content_action_or_params_change(self):
         p = self._proj()
