@@ -71,3 +71,7 @@ env -u PYTHONPATH uv run --frozen python -m pytest
 ```
 
 No network, GPU or real clips needed.
+
+## License
+
+MIT, see [LICENSE](LICENSE). The code only: models, animation libraries and generated art keep their own licences.
