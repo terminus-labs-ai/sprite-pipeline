@@ -3,7 +3,7 @@
 
 Per approved character, animation and generated direction: drive (Blender
 render, cached by the project's drive key) -> animate (Wan Animate 2 via
-comfy_run) -> key (sprite-gen video-frames) -> loop (sprite-gen video-loop);
+comfy) -> key (sprite-gen video-frames) -> loop (sprite-gen video-loop);
 then per character pixel (pixelize over all sets) -> export (mirrored frames,
 atlas.png, Godot 4 SpriteFrames .tres, contact-sheet.png). Stages whose output
 exists are skipped unless --force.
