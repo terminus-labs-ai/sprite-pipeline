@@ -135,7 +135,14 @@ class StageCtx:
             return cmds
         if stage == "animate":
             pose = anim.prompt.replace("{who}", "a person")
-            argv = [sys.executable, "-m", "sprite_pipeline.comfy_run", "animate",
+            # per-animation workflow override (FR 3, AC6-r4): animation.workflow
+            # replaces workflows.animate for that animation
+            wf = getattr(anim, "workflow", None) or p.workflows["animate"]
+            wf_path = Path(wf)
+            if not wf_path.is_absolute():
+                wf_path = p.path.parent / wf_path
+            argv = [sys.executable, "-m", "sprite_pipeline.comfy", "animate",
+                    "--workflow", str(wf_path),
                     "--ref", str(self.dir_still(char, d)), "--video",
                     self.input_mp4(char, anim, d).name,
                     "--w", str(p.sprite.frame_size), "--h", str(p.sprite.frame_size),
