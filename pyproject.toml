@@ -5,10 +5,14 @@ description = "Character kit x shared motion library -> pixel-art sprite sets (B
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
-dependencies = ["pillow>=11", "pyyaml>=6"]
+dependencies = [
+    "pillow>=11",
+ "pyyaml>=6",
+ "sprite-gen",
+]
 
 [project.scripts]
-sprite-pipeline = "sprite_pipeline.build:main"
+sprite-pipeline = "sprite_pipeline.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -17,6 +21,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/sprite_pipeline"]
 include = ["src/sprite_pipeline/views/*.yaml"]
+
+[tool.uv.sources]
+sprite-gen = { git = "https://github.com/aldegad/sprite-gen", rev = "v4.3.0" }
 
 [dependency-groups]
 dev = ["pytest>=8"]

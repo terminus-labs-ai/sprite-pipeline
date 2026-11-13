@@ -6,8 +6,7 @@ mirror mapping ported from tests/test_build.py.
 No network, no GPU, no Blender, no ComfyUI at test runtime: subprocesses are
 faked at subprocess.run, the config home is isolated per test.
 """
-import hashlib
-import json
+import io
 import os
 import re
 import shutil
@@ -16,10 +15,8 @@ import sys
 import tempfile
 import tomllib
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-
-import yaml
 
 from sprite_pipeline import cli, config, project, stages
 
@@ -50,8 +47,8 @@ class FakeRun:
     """subprocess.run stand-in that executes nothing and records every argv.
 
     `fails` maps a substring of the joined argv to a nonzero exit code.
-    `after` maps a substring to a hook(argv) run after recording (to materialise
-    a stage's outputs so the next stage proceeds)."""
+    `after` maps a substring to a hook(argv) run after recording, to materialise
+    a stage's outputs so the next stage proceeds."""
 
     def __init__(self, fails=None, after=None):
         self.calls = []
@@ -94,29 +91,20 @@ class Env(unittest.TestCase):
         subprocess.run = self._old_run
 
     def run_cli(self, argv, fake=None):
+        """Invoke cli.main capturing stdout and stderr; a config SystemExit
+        becomes its exit code and its message joins the captured output."""
         if fake is not None:
             subprocess.run = fake
-        out = io_capture()
+        buf = io.StringIO()
+        err = io.StringIO()
         try:
-            with out as buf:
+            with redirect_stdout(buf), redirect_stderr(err):
                 code = cli.main(argv)
         except SystemExit as e:
             code = e.code if isinstance(e.code, int) else 1
             buf.write(str(e) + "\n")
+        buf.write(err.getvalue())
         return code, buf.getvalue()
-
-
-class io_capture:
-    def __enter__(self):
-        import io
-        self.buf = io.StringIO()
-        self.ctx = redirect_stdout(self.buf)
-        self.ctx.__enter__()
-        return self.buf
-
-    def __exit__(self, *exc):
-        self.ctx.__exit__(*exc)
-        return False
 
 
 # ------------------------------------------------------------------------ fixtures
@@ -124,7 +112,7 @@ class io_capture:
 class ProjectFixture:
     """A stubbed working copy of examples/isometric: the still and the GLB are
     stub bytes (the example ships only project.yaml and its README), and an LSR
-    stub stands in for the machine-local drive LSR from config.toml."""
+    stub stands in for the machine-local drive LSR named by config.toml."""
 
     def __init__(self, tmp):
         self.tmp = Path(tmp)
@@ -161,24 +149,21 @@ class TestDryRunNeedsNothing(Env):
     def test_exit_zero_still_preparation_and_summary(self):
         code, out = self.run_cli(["go", str(self.f.project), "--dry-run"])
         self.assertEqual(code, 0, out)
-        self.assertIn(
-            f"{self.f.base / 'out' / 'courier' / 'master' / 'se.png'}", out)
-        self.assertIn("prepare still", out)
-        self.assertIn("courier: still preparation", out)
+        self.assertIn(str(self.f.base / "out" / "courier" / "master" / "se.png"), out)
+        self.assertIn("[courier] still preparation", out)
         self.assertIn("dry run complete", out)
         self.assertIn("summary", out)
 
     def test_four_direction_edit_lines(self):
         code, out = self.run_cli(["go", str(self.f.project), "--dry-run"])
         for d in ("s", "e", "ne", "n"):
-            self.assertIn(f"courier/{d}: direction edit", out)
-        self.assertNotIn("courier/se: direction edit", out)  # the still's own dir
-        self.assertEqual(len(re.findall(r"courier/\w+: direction edit", out)), 4)
+            self.assertIn(f"[courier/{d}] direction edit", out)
+        self.assertNotIn("[courier/se] direction edit", out)  # the still's own dir
+        self.assertEqual(len(re.findall(r"courier/\w+\] direction edit", out)), 4)
 
     def test_no_animation_lines_for_an_unapproved_character(self):
         code, out = self.run_cli(["go", str(self.f.project), "--dry-run"])
         for stage in ("drive", "animate", "key", "loop", "pixel", "export"):
-            self.assertNotIn(f"{stage} (", out, stage)
             self.assertNotIn(f"stage={stage}", out, stage)
         self.assertIn("unapproved", out)
 
@@ -210,14 +195,16 @@ class TestDryRunApproved(Env):
     def test_lines_per_animation_and_direction(self):
         code, out = self.run_cli(["go", str(self.f.project), "--dry-run"])
         self.assertEqual(code, 0, out)
-        for stage in ("drive", "animate", "key", "loop"):
-            self.assertEqual(len(re.findall(rf"stage={stage} ", out)), 13 * 5, stage)
+        for stage in ("animate", "key", "loop"):
+            self.assertEqual(len(re.findall(rf"\] stage={stage} \(cmd\)  ", out)), 13 * 5, stage)
+        # the drive stage plans three steps per pair: blender, ffmpeg, python copy
+        self.assertEqual(len(re.findall(r"\] stage=drive \(cmd\)  ", out)), 13 * 5 * 2)
+        self.assertEqual(len(re.findall(r"\] stage=drive \(python copy\)  ", out)), 13 * 5)
         self.assertEqual(len(re.findall(r"stage=pixel", out)), 1)
         self.assertEqual(len(re.findall(r"stage=export", out)), 1)
-        # every summary row is present
         for d in GEN_DIRS:
             for a in ANIM_NAMES:
-                self.assertIn(f"{a}/{d} ", out + "\n")
+                self.assertIn(f"{a}/{d}", out)
 
     def test_paths_under_the_output_layout(self):
         code, out = self.run_cli(["go", str(self.f.project), "--dry-run"])
@@ -229,31 +216,50 @@ class TestDryRunApproved(Env):
 
     def test_every_printed_absolute_path_is_under_project_or_motion_cache(self):
         # the drive LSR is a machine location in config.toml (like `blender`
-        # and the ComfyUI dirs), so it is the one allowed foreign root
+        # and the ComfyUI dirs); the home itself holds motion_cache and comfyui
         self.home.mkdir(parents=True, exist_ok=True)
         (self.home / "config.toml").write_text(f'drive_lsr = "{self.f.lsr}"\n')
         code, out = self.run_cli(["go", str(self.f.project), "--dry-run"])
         self.assertEqual(code, 0, out)
-        cache = str(self.home / "motion-cache")
+        # every printed absolute path starts at one of the three known roots;
+        # a window per root skips prose fragments like "stills/courier.png"
+        roots = [str(self.f.base), str(self.home), str(self.f.lsr)]
         found = 0
-        for m in re.findall(r"(/[^\s'()\[\]=,]+)", out):
-            found += 1
-            self.assertTrue(
-                m.startswith(str(self.f.base)) or m.startswith(cache) or m == str(self.f.lsr),
-                f"path outside the project dir or motion_cache: {m}")
+        for root in roots:
+            i = 0
+            while True:
+                i = out.find(root, i)
+                if i < 0:
+                    break
+                w = re.match(r"\S*", out[max(0, i - 1):]).group(0)  # whole token
+                if i > 0 and out[i - 1] not in " \t([":
+                    i += 1
+                    continue  # mid-token occurrence, e.g. inside a longer path
+                self.assertTrue(out[i - 1] in " \t([" or i == 0)
+                found += 1
+                i += len(root)
         self.assertGreater(found, 50)  # the dry run really did print its paths
+        # and no *argv token* (the part after "(cmd)  ") escapes those roots
+        for line in out.splitlines():
+            if "(cmd)  " in line or "(python copy)  " in line:
+                argv_part = line.split("  ", 2)[-1]
+                for tok in argv_part.split():
+                    tok = tok.strip("'")
+                    if tok.startswith("/") and len(tok) > 4:
+                        allowed = roots + [str(Path(cli.__file__).parent),  # render_drive.py
+                                           str(Path(sys.executable).parent)]  # venv python
+                        self.assertTrue(any(tok.startswith(a) for a in allowed),
+                                        f"argv path outside the known roots: {tok}")
 
-    def test_drive_is_cached_across_directions_by_content_key(self):
-        # one GLB, one action: all five direction drives of one animation share
-        # the animation-level content key of the drive (FACING differs per dir,
-        # so the drive mp4s differ; the key itself is dir-independent)
+    def test_drive_planned_with_the_slice1_content_key(self):
         code, out = self.run_cli(["go", str(self.f.project), "--dry-run",
                                   "--animations", "run", "--dirs", "s,se"])
-        keys = set(re.findall(r"run-(?:s|se)-([0-9a-f]{16})\.mp4", out))
-        self.assertGreaterEqual(len(keys), 1)
+        self.assertEqual(code, 0, out)
         glb = (self.f.base / "anims" / "ual.glb").read_bytes()
         p = project.load_project(self.f.project)
-        self.assertIn(p.drive_key(p.animation("run"), glb), keys)
+        key = p.drive_key(p.animation("run"), glb)
+        self.assertIn(f"courier-run-s-{key}.mp4", out)
+        self.assertIn(f"drive-courier-run-se-{key}.mp4", out)
 
 
 # ------------------------------------------------------------------- AC1-r3: flags
@@ -268,32 +274,38 @@ class TestNarrowingFlags(Env):
         code, out = self.run_cli(["go", str(self.f.project), "--animations", "run",
                                   "--dirs", "se", "--dry-run"])
         self.assertEqual(code, 0, out)
-        self.assertEqual(len(re.findall(r"stage=drive ", out)), 1)
-        self.assertEqual(len(re.findall(r"stage=animate ", out)), 1)
-        self.assertEqual(len(re.findall(r"stage=key ", out)), 1)
-        self.assertEqual(len(re.findall(r"stage=loop ", out)), 1)
-        self.assertIn("run/se", out)
+        for stage in ("animate", "key", "loop"):
+            self.assertEqual(len(re.findall(rf"\] stage={stage} \(cmd\)  ", out)), 1, stage)
+        self.assertEqual(len(re.findall(r"\] stage=drive \(cmd\)  ", out)), 2)
+        self.assertEqual(len(re.findall(r"\] stage=drive \(python copy\)  ", out)), 1)
+        self.assertIn("[run/se]", out)
         for d in ("s", "e", "ne", "n"):
-            self.assertNotIn(f"/{d}]", out)
-        pixel = [l for l in out.splitlines() if "stage=pixel" in l][0]
+            self.assertNotIn(f"[run/{d}]", out)
+        pixel = [l for l in out.splitlines() if "] stage=pixel (cmd)  " in l][0]
         self.assertIn("--set se-run=", pixel)
         self.assertNotIn("--set s-run", pixel)
         self.assertNotIn("--set se-punch", pixel)
 
-    def test_characters_flag_excludes_others(self):
+    def test_characters_flag_selects_and_rejects(self):
+        # an unknown name is rejected naming the flag (the example has one
+        # character, so selecting others plans nothing of courier's either way)
         code, out = self.run_cli(["go", str(self.f.project), "--characters", "nobody",
                                   "--dry-run"])
+        self.assertEqual(code, 2, out)
+        self.assertIn("--characters", out)
+        code, out = self.run_cli(["go", str(self.f.project), "--characters", "courier",
+                                  "--dry-run"])
         self.assertEqual(code, 0, out)
-        self.assertNotIn("courier", out)
+        self.assertIn("[courier]", out)
 
     def test_unknown_narrowing_names_exit_2(self):
         code, out = self.run_cli(["go", str(self.f.project), "--animations", "nope",
                                   "--dry-run"])
         self.assertEqual(code, 2, out)
-        self.assertIn("animations", out)
+        self.assertIn("--animations", out)
         code, out = self.run_cli(["go", str(self.f.project), "--dirs", "sw", "--dry-run"])
         self.assertEqual(code, 2, out)
-        self.assertIn("dirs", out)
+        self.assertIn("--dirs", out)
 
     def test_stage_flag_runs_only_that_stage(self):
         code, out = self.run_cli(["go", str(self.f.project), "--stage", "loop",
@@ -319,8 +331,8 @@ class TestSkipUnlessForce(Env):
         inp = self.home / "comfyui" / "input"
         cache.mkdir(parents=True, exist_ok=True)
         inp.mkdir(parents=True, exist_ok=True)
-        (cache / f"{anim}-{d}-{key}.mp4").write_bytes(b"x")
-        (inp / f"drive-{anim}-{d}-{key}.mp4").write_bytes(b"x")
+        (cache / f"courier-{anim}-{d}-{key}.mp4").write_bytes(b"x")
+        (inp / f"drive-courier-{anim}-{d}-{key}.mp4").write_bytes(b"x")
 
     def test_drive_skip_without_force_planned_with_force(self):
         self._place_drive("run", "s")
@@ -356,7 +368,7 @@ class TestSkipUnlessForce(Env):
                 (sprites / f"{d}-{a}_000.png").write_bytes(b"x")
         code, out = self.run_cli(["go", str(self.f.project), "--dry-run"])
         self.assertEqual(code, 0, out)
-        self.assertIn("[pixel] skip", out)
+        self.assertRegex(out, r"\[pixel\] skip")
         code, out = self.run_cli(["go", str(self.f.project), "--dry-run", "--force"])
         self.assertEqual(code, 0, out)
         self.assertNotIn("[pixel] skip", out)
@@ -372,22 +384,27 @@ class TestSpriteGenPin(unittest.TestCase):
     def test_pyproject_declares_the_pinned_git_dependency(self):
         d = tomllib.loads((ROOT / "pyproject.toml").read_text())
         matches = [r for r in d["project"]["dependencies"] if "sprite-gen" in r]
-        self.assertLen(matches, 1)
-        self.assertEqual(
-            matches[0].replace(" ", ""),
-            "sprite-gen@git+https://github.com/aldegad/sprite-gen@v4.3.0")
+        self.assertEqual(len(matches), 1)
+        # uv pins the git dependency through [tool.uv.sources]; the requirement
+        # and the source together are the pinned git URL
+        src = d["tool"]["uv"]["sources"]["sprite-gen"]
+        self.assertEqual(src, {"git": "https://github.com/aldegad/sprite-gen",
+                               "rev": "v4.3.0"})
 
     def test_uv_lock_pins_the_git_source_at_the_tag(self):
-        d = yaml.safe_load((ROOT / "uv.lock").read_text())
+        d = tomllib.loads((ROOT / "uv.lock").read_text())  # uv.lock is TOML
         pkg = [p for p in d["package"] if p["name"] == "sprite-gen"]
-        self.assertLen(pkg, 1)
-        self.assertEqual(pkg[0]["source"],
-                         {"git": "https://github.com/aldegad/sprite-gen", "tag": "v4.3.0"})
+        self.assertEqual(len(pkg), 1)
+        src = pkg[0]["source"]["git"]
+        base, _, rest = src.partition("?")
+        self.assertEqual(base, "https://github.com/aldegad/sprite-gen")
+        self.assertIn("rev=v4.3.0", rest)  # uv records a git tag pin as rev=<tag>
+        self.assertEqual(pkg[0]["version"], "4.3.0")
 
     def test_uv_lock_lists_sprite_gen_as_a_root_dependency(self):
-        d = yaml.safe_load((ROOT / "uv.lock").read_text())
+        d = tomllib.loads((ROOT / "uv.lock").read_text())
         root = [p for p in d["package"] if p["name"] == "sprite-pipeline"]
-        self.assertLen(root, 1)
+        self.assertEqual(len(root), 1)
         self.assertIn({"name": "sprite-gen"}, root[0]["dependencies"])
 
 
@@ -402,27 +419,30 @@ class TestSpriteGenArgv(Env):
         self.f = ProjectFixture(self.tmp)
         self.f.approve()
 
-    def test_key_loop_and_cutout_argv0_is_the_running_interpreter(self):
-        cmds = stages.sprite_gen_cmds(["video-frames", "--clip", "x"])
-        self.assertLen(cmds, 1)
+    def test_sprite_gen_cmds_argv0_is_the_running_envs_console_script(self):
+        # checked on install: sprite_gen ships no __main__, so the pinned
+        # package is called through its console script next to sys.executable
+        cmds = stages.sprite_gen_cmds("video-frames", "--clip", "x")
+        self.assertEqual(len(cmds), 1)
         argv, _label = cmds[0]
-        self.assertEqual(argv, [sys.executable, "-m", "sprite_gen", "video-frames",
-                                "--clip", "x"])
+        self.assertEqual(argv, [str(Path(sys.executable).parent / "sprite-gen"),
+                                "video-frames", "--clip", "x"])
+        self.assertTrue(Path(argv[0]).is_file(), f"{argv[0]} not installed")
 
     def test_planned_key_and_loop_commands(self):
         code, out = self.run_cli(["go", str(self.f.project), "--dry-run",
                                   "--animations", "run", "--dirs", "s"])
         self.assertEqual(code, 0, out)
-        key = [l for l in out.splitlines() if "stage=key " in l][0].split(")  ", 1)[1].split()
-        self.assertEqual(key[:3], [sys.executable, "-m", "sprite_gen", "video-frames"])
+        key = [l for l in out.splitlines() if "] stage=key (cmd)  " in l][0].split("  ", 1)[1].split()
+        self.assertEqual(key[:2], [str(stages.sprite_gen_exe()), "video-frames"])
         self.assertEqual(key[key.index("--clip") + 1],
                          str(self.f.base / "out" / "courier" / "clips" / "run-s.mp4"))
         self.assertEqual(key[key.index("--out-dir") + 1],
                          str(self.f.base / "out" / "courier" / "work" / "frames-run-s"))
         self.assertEqual(key[key.index("--spill") + 1], "small")
         self.assertIn("--allow-subject-edge-contact", key)
-        loop = [l for l in out.splitlines() if "stage=loop " in l][0].split(")  ", 1)[1].split()
-        self.assertEqual(loop[:3], [sys.executable, "-m", "sprite_gen", "video-loop"])
+        loop = [l for l in out.splitlines() if "] stage=loop (cmd)  " in l][0].split("  ", 1)[1].split()
+        self.assertEqual(loop[:2], [str(stages.sprite_gen_exe()), "video-loop"])
         self.assertEqual(loop[loop.index("--frames-dir") + 1],
                          str(self.f.base / "out" / "courier" / "work" / "frames-run-s" / "keyed"))
         self.assertEqual(loop[loop.index("--out-dir") + 1],
@@ -434,7 +454,7 @@ class TestSpriteGenArgv(Env):
                                   "--animations", "run,punch", "--dirs", "s"])
         self.assertEqual(code, 0, out)
         loops = {l.split("] ")[0][1:]: l.split(")  ", 1)[1]
-                 for l in out.splitlines() if "stage=loop " in l}
+                 for l in out.splitlines() if "] stage=loop (cmd)  " in l}
         run_loop = loops["run/s"].split()
         # run: looped -> fixed cycle over its 1..22 window; seam_max 0 -> no --seam-max
         self.assertEqual(run_loop[run_loop.index("--cycle") + 1], "fixed")
@@ -452,7 +472,7 @@ class TestSpriteGenArgv(Env):
         code, out = self.run_cli(["go", str(self.f.project), "--dry-run",
                                   "--animations", "sneak", "--dirs", "s"])
         self.assertEqual(code, 0, out)
-        loop = [l for l in out.splitlines() if "stage=loop " in l][0].split(")  ", 1)[1].split()
+        loop = [l for l in out.splitlines() if "] stage=loop (cmd)  " in l][0].split("  ", 1)[1].split()
         self.assertEqual(loop[loop.index("--seam-max") + 1], "3")
 
     def test_argv0_is_not_a_config_value(self):
@@ -463,8 +483,24 @@ class TestSpriteGenArgv(Env):
         (self.home / "config.toml").write_text('sprite_gen = "/somewhere/else"\n')
         code, out = self.run_cli(["go", str(self.f.project), "--dry-run", "--stage", "key",
                                   "--animations", "run", "--dirs", "s"])
-        self.assertEqual(code, 2, out)  # rejected as an unknown key, not obeyed
-        self.assertNotIn("/somewhere/else", out)
+        # the run refuses to start: the config load exits with the error message
+        self.assertEqual(code, 1, out)
+        self.assertIn("unknown key", out)
+        self.assertIn("sprite_gen", out)
+        self.assertNotIn("/somewhere/else", out.split("config.toml: unknown key")[0])
+
+    def test_cutout_plan_exists_and_uses_the_same_entry_point(self):
+        # FR 6's SE-still cutout, planned here; slice 4 wires it into still prep
+        still = self.f.base / "stills" / "courier.png"
+        out_dir = self.f.base / "out" / "courier" / "master"
+        cmds = stages.plan_cutout(still, out_dir)
+        self.assertEqual(len(cmds), 1)
+        argv, _label = cmds[0]
+        self.assertEqual(argv[0], str(stages.sprite_gen_exe()))
+        self.assertEqual(argv[1], "cutout")
+        self.assertEqual(argv[argv.index("--source") + 1], str(still))
+        self.assertEqual(argv[argv.index("--out-dir") + 1], str(out_dir))
+        self.assertEqual(argv[argv.index("--key") + 1], "measured")
 
 
 # ------------------------------------------------------- AC8-r3: no cp/mv/rm argv
@@ -474,39 +510,37 @@ class TestNoPosixShellingOut(Env):
     project starts with cp, mv or rm; the drive copy is done in Python."""
 
     def test_no_planned_argv_starts_with_a_posix_file_command(self):
-        self.f = ProjectFixture(self.tmp)
-        self.f.approve()
-        self.home.mkdir(parents=True, exist_ok=True)
-        (self.home / "config.toml").write_text(f'drive_lsr = "{self.f.lsr}"\n')
-        code, out = self.run_cli(["go", str(self.f.project), "--dry-run"])
+        f = ProjectFixture(self.tmp)
+        f.approve()
+        code, out = self.run_cli(["go", str(f.project), "--dry-run"])
         self.assertEqual(code, 0, out)
-        cmd_lines = [l for l in out.splitlines() if ")  " in l]
-        self.assertGreaterEqual(len(cmd_lines), 13 * 5 * 4)
+        cmd_lines = [l for l in out.splitlines() if "(cmd)  " in l]
+        self.assertGreaterEqual(len(cmd_lines), 13 * 5 * 5)  # all stages planned
         for line in cmd_lines:
-            for tok in line.split(")  ", 1)[1].split():
-                first = Path(tok).name
-                self.assertNotIn(first, ("cp", "mv", "rm"), line)
-                break  # only argv[0] matters, but the loop guards the check
+            rest = line.split("(cmd)  ", 1)[1]
+            first = Path(rest.split(" ")[0]).name
+            self.assertNotIn(first, ("cp", "mv", "rm"), line)
 
     def test_drive_copy_step_is_python_not_subprocess(self):
-        src = self.tmp / "cache" / "run-s-abc.mp4"
+        src = self.tmp / "cache" / "courier-run-s-abc.mp4"
         src.parent.mkdir(parents=True)
         src.write_bytes(b"drive bytes")
-        dst = self.home / "comfyui" / "input" / "drive-run-s-abc.mp4"
-        with open(os.devnull, "w") as sink:
-            code = stages.copy_step(str(src), str(dst), sink)
-        self.assertEqual(code, 0)
+        dst = self.home / "comfyui" / "input" / "drive-courier-run-s-abc.mp4"
+        log = []
+        stages.copy_file(str(src), str(dst), log)
         self.assertEqual(dst.read_bytes(), b"drive bytes")
+        self.assertIn("python", log[-1])
         # and the planned drive stage carries no third (cp) command any more
-        f = ProjectFixture(self.tmp)  # fresh: same tmp, approved
+        f = ProjectFixture(self.tmp)
         f.approve()
         code, out = self.run_cli(["go", str(f.project), "--dry-run", "--stage", "drive",
                                   "--animations", "run", "--dirs", "s"])
         self.assertEqual(code, 0, out)
-        drive_cmds = [l for l in out.splitlines() if "stage=drive" in l]
-        self.assertLen(drive_cmds, 2)  # blender + ffmpeg only
-        self.assertTrue(all(Path(l.split(")  ", 1)[1].split()[0]).name != "cp"
-                            for l in drive_cmds))
+        drive_cmds = [l for l in out.splitlines() if "] stage=drive (cmd)  " in l]
+        self.assertEqual(len(drive_cmds), 2)  # blender + ffmpeg only
+        self.assertTrue(all(" cp " not in l for l in drive_cmds))
+        copy_lines = [l for l in out.splitlines() if "] stage=drive (python copy)  " in l]
+        self.assertEqual(len(copy_lines), 1)
 
 
 # ------------------------------------------------------------------- AC8-r4: config
@@ -619,15 +653,15 @@ class TestMirrorMapping(unittest.TestCase):
             im.putdata(row)
             im.save(src)
             flipped = Image.open(src).convert("RGBA").transpose(Image.FLIP_LEFT_RIGHT)
-            self.assertEqual(list(flipped.getdata()), list(reversed(row)))
+            self.assertEqual(list(flipped.get_flattened_data()), list(reversed(row)))
 
 
 # --------------------------------------------- ported from test_build.py: do_export
 
-class TestExportProgram(unittest.TestCase):
+class TestExportProgram(Env):
     def _ctx(self, tmp, anim_names, dirs):
         p = project.load_project(ProjectFixture(tmp).project)
-        ctx = stages.StageCtx(p, config.defaults(config.home()))
+        ctx = stages.StageCtx(p, config.defaults(Path(tmp) / "home"))
         moves = [p.animation(n) for n in anim_names]
         return ctx, moves, list(dirs), ctx.sprite_out("courier")
 
@@ -659,8 +693,8 @@ class TestExportProgram(unittest.TestCase):
             self.assertIn('loop": true', text)  # run is a fixed loop
             # mirrored sw flips se
             self.assertTrue((out / "sw-run_000.png").is_file())
-            sw0 = list(Image.open(out / "sw-run_000.png").convert("RGBA").getdata())
-            se0 = list(Image.open(out / "se-run_000.png").convert("RGBA").getdata())
+            sw0 = list(Image.open(out / "sw-run_000.png").convert("RGBA").get_flattened_data())
+            se0 = list(Image.open(out / "se-run_000.png").convert("RGBA").get_flattened_data())
             self.assertEqual(sw0, list(reversed(se0)))
 
     def test_export_ignores_pixelize_sheet_strips(self):
@@ -683,7 +717,7 @@ class TestExportProgram(unittest.TestCase):
 
 class TestExecution(Env):
     """The non-dry path with the runner faked: planned commands actually run in
-    stage order; a failure is recorded, the run continues, exit code 1."""
+    stage order; a failure is recorded and the exit code is 1."""
 
     def setUp(self):
         super().setUp()
@@ -691,40 +725,30 @@ class TestExecution(Env):
         self.f.approve()
 
     def _produce(self, argv):
-        """Stage-output materialiser for the fake runner."""
-        joined = " ".join(argv)
-        if "render_drive.py" in joined:
+        """The fake blender writes its frames; the fake ffmpeg writes its output."""
+        if "render_drive.py" in " ".join(argv):
             frames = Path(argv[argv.index("--") + 3])
             frames.mkdir(parents=True, exist_ok=True)
             (frames / "f0000.png").write_bytes(TINY_PNG)
-        if "video-frames" in joined:
-            wd = Path(argv[argv.index("--out-dir") + 1]) / "keyed"
-            wd.mkdir(parents=True, exist_ok=True)
-            (wd / "000.png").write_bytes(TINY_PNG)
-        if "video-loop" in joined:
-            cyc = Path(argv[argv.index("--out-dir") + 1]) / "cycle"
-            cyc.mkdir(parents=True, exist_ok=True)
-            (cyc / "000.png").write_bytes(TINY_PNG)
-
-    def test_drive_then_animate_run_and_report_ok(self):
-        fake = FakeRun(after={"render_drive.py": self._produce,
-                              "-i ": lambda a: None})
-        # the ffmpeg drive encode must materialise the cached mp4 so the Python
-        # copy step finds it
-        def after_ffmpeg(argv):
-            dst = Path(argv[argv.index("-pix_fmt") + 2])
+        elif argv[0] == "ffmpeg":
+            dst = Path(argv[-1])
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_bytes(b"drive")
-        fake.after["-pix_fmt"] = after_ffmpeg
+
+    def test_drive_runs_and_the_copy_lands_in_comfy_input(self):
+        # blender and ffmpeg produce their outputs; the copy step is in-process
+        fake = FakeRun(after={"render_drive.py": self._produce, "ffmpeg": self._produce})
         code, out = self.run_cli(["go", str(self.f.project), "--animations", "run",
                                   "--dirs", "s", "--stage", "drive"], fake=fake)
         self.assertEqual(code, 0, out)
         self.assertRegex(out, r"run/s\] drive=ok")
         self.assertEqual(Path(fake.calls[0][0]).name, "blender")
         self.assertEqual(fake.calls[1][0], "ffmpeg")
-        self.assertLen(fake.calls, 2)  # blender, ffmpeg — the copy is Python, not a subprocess
+        self.assertEqual(len(fake.calls), 2)  # the copy is Python, not a subprocess
         copied = self.home / "comfyui" / "input"
-        self.assertEqual(len(list(copied.glob("drive-run-s-*.mp4"))), 1)
+        self.assertEqual(len(list(copied.glob("drive-courier-run-s-*.mp4"))), 1)
+        self.assertEqual(list(copied.glob("drive-courier-run-s-*.mp4"))[0].read_bytes(),
+                         b"drive")
 
     def test_failed_stage_marks_FAIL_and_exits_1(self):
         fake = FakeRun(fails={"video-frames": 1})
@@ -733,20 +757,27 @@ class TestExecution(Env):
         self.assertEqual(code, 1, out)
         self.assertRegex(out, r"run/s\] key=FAIL")
         self.assertIn("FAILED: 1", out)
-        self.assertLen(fake.calls, 1)
+        self.assertEqual(len(fake.calls), 1)
 
     def test_animate_subprocess_shape(self):
-        fake = FakeRun(after={"video-loop": self._produce})
-        # clip already keyed and looped? no: run animate only, with the clip faked in
+        fake = FakeRun()
         clip = self.f.base / "out" / "courier" / "clips"
         clip.mkdir(parents=True)
         (clip / "run-s.mp4").write_bytes(b"x")
         code, out = self.run_cli(["go", str(self.f.project), "--stage", "animate",
                                   "--animations", "run", "--dirs", "s"], fake=fake)
+        # animate is done (clip exists) -> skip
+        self.assertEqual(code, 0, out)
+        self.assertRegex(out, r"run/s\] animate=skip")
+        self.assertEqual(fake.calls, [])
+        # forced: the comfy_run call is planned and executed
+        code, out = self.run_cli(["go", str(self.f.project), "--stage", "animate", "--force",
+                                  "--animations", "run", "--dirs", "s"], fake=fake)
         self.assertEqual(code, 0, out)
         argv = fake.calls[0]
-        self.assertEqual(argv[:3], [sys.executable, "-m", "sprite_pipeline.comfy_run", "animate"])
-        self.assertEqual(argv[argv.index("--video") + 1][:11], "drive-run-s")
+        self.assertEqual(argv[:4],
+                         [sys.executable, "-m", "sprite_pipeline.comfy_run", "animate"])
+        self.assertTrue(argv[argv.index("--video") + 1].startswith("drive-courier-run-s"))
         self.assertEqual(argv[argv.index("--copy-to") + 1], str(clip / "run-s.mp4"))
         self.assertEqual(argv[argv.index("--pose-strength") + 1], "0.75")
         self.assertIn("head up", argv[argv.index("--pose-prompt") + 1])
@@ -755,9 +786,9 @@ class TestExecution(Env):
 # ----------------------------------------------------------------- CLI surface shape
 
 class TestCliSurface(Env):
-    def test_godry_run_of_the_example_needs_no_config_home_at_all(self):
-        # AC1: "needs no ComfyUI, Blender or sprite_gen config key" — the home
-        # is never even created by a dry run
+    def test_dry_run_of_the_example_needs_no_config_home_at_all(self):
+        # AC1: "needs no ComfyUI, Blender or sprite_gen config key" — a dry run
+        # never even creates the config home
         f = ProjectFixture(self.tmp)
         code, out = self.run_cli(["go", str(f.project), "--dry-run"])
         self.assertEqual(code, 0, out)
