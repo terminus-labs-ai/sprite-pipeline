@@ -273,6 +273,7 @@ def main(argv=None, out=None):
         # the still-prep skips treat the character as unapproved this run
         reroll = rerolls.get(char, {})
         rerolled = bool(reroll)  # a reroll redoes its still and stops for review
+        five = not ctx.missing_stills(char)  # every direction still exists
         # The review stop (FR 8) precedes the animation stages: once the
         # stills exist, go writes refs-sheet.png and stops until approve
         # recorded the stills' hash; --reroll stops the run again, --no-stop
@@ -289,12 +290,14 @@ def main(argv=None, out=None):
                       f"sprite-pipeline approve {args['project_file']} {char}", file=out)
                 continue
         elif not (args["no_stop"] and ctx.is_approved(char) and not rerolled):
-            # FR 6 + FR 7: still preparation, palette cutout, direction edits.
-            # They run whenever the character awaits review, a reroll redoes
-            # one of the stills, or --force re-runs them; an approved run
-            # without a reroll has nothing to redo — redoing a still would
-            # invalidate the review it already passed.
-            if force or rerolled or not ctx.is_approved(char):
+            # FR 6 + FR 7 + FR 8: still preparation, palette cutout, direction
+            # edits, then the review sheet and the stop verdict.
+            stop_now = not ctx.is_approved(char) or rerolled
+            # --force alone over an approved complete set re-runs the chosen
+            # stage's own commands, never the reviewed stills; redoing a still
+            # would invalidate the approval it passed (a reroll does redo it)
+            redo_stills = not five or not ctx.is_approved(char) or rerolled
+            if redo_stills:
                 if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
                                   reroll, force, log, out):
                     failed.append(f"{char} stills")
@@ -305,8 +308,9 @@ def main(argv=None, out=None):
                 stills.review_sheet([ctx.dir_still(char, d) for d in proj.generate
                                      if ctx.dir_still(char, d).is_file()], sheet)
                 print(f"[{char}] review sheet {sheet}", file=out)
-            if not args["no_stop"] and (not ctx.is_approved(char) or rerolled):
+            if stop_now and not args["no_stop"]:
                 stopped.append(char)
+                missing = ctx.missing_stills(char)
                 if missing:
                     print(f"[{char}] unapproved: direction stills missing "
                           f"{', '.join(missing)}; rerun go to make them", file=out)
@@ -318,7 +322,8 @@ def main(argv=None, out=None):
                         # --reroll redid a still: even while refs.approved
                         # still matches (same bytes), this run ends at the
                         # review so the sheet is looked at again
-                        print(f"[{char}] reroll: review {sheet} again", file=out)
+                        print(f"[{char}] reroll: review {ctx.refs_sheet(char)} again",
+                              file=out)
                 continue  # stop: no animation stages this run
 
         for d in dirs:
