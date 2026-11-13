@@ -1,0 +1,47 @@
+# Isometric example project — the current motion library as a project file
+# (13 animations, run/punch/sneak tested; see README for what to put in
+# stills/ and anims/). All paths are relative to this file, so the folder
+# copies to another machine as-is.
+style: "2D game sprite art, hand-painted cel shading, bold dark outlines, crisp edges"
+view: isometric
+directions:
+  generate: [s, se, e, ne, n]
+  mirror: {sw: se, w: e, nw: ne}
+sprite: {scale: 0.2023, colors: 40, accent_boost: 3, fps: 30, frame_size: 704}
+naming: "{animation}_{dir}"
+export: godot
+seed: 7
+pose_strength: 0.75
+output: out
+workflows: {edit: workflows/edit.json, animate: workflows/animate.json}
+characters:
+  - {name: courier, still: stills/courier.png,
+     describe: "a courier in a cyberpunk city: an adult woman with a compact utility jacket and a messenger satchel",
+     pronoun: she}
+animations:
+  - {name: run, source: "anims/ual.glb#Jog_Fwd_Loop", frames: 22, start: 1, clip_frames: 45,
+     loop: true, repeats: 2, pre: 1, state: run, prompt: "{who} jogging in place, head up"}
+  - {name: punch, source: "anims/ual.glb#Punch_Cross", frames: 33, start: 0, clip_frames: 33,
+     loop: false, pre: 4, post: 5, state: attack, prompt: "{who} throwing a fast cross punch, head up"}
+  - {name: idle, source: "anims/ual.glb#Idle_Loop", frames: 60, start: 1, clip_frames: 61,
+     loop: true, pre: 1, state: idle, prompt: "{who} standing still with a relaxed breathing cycle"}
+  - {name: walk, source: "anims/ual.glb#Walk_Loop", frames: 32, start: 1, clip_frames: 33,
+     loop: true, pre: 1, state: walk, prompt: "{who} walking forward at an even pace in place"}
+  - {name: sneak, source: "anims/ual.glb#Crouch_Fwd_Loop", frames: 48, start: 1, clip_frames: 49,
+     loop: true, pre: 1, seam_max: 3.0, state: walk, prompt: "{who} crouched low moving forward in place"}
+  - {name: crouch_idle, source: "anims/ual.glb#Crouch_Idle_Loop", frames: 70, start: 3, clip_frames: 73,
+     loop: true, pre: 3, state: idle, prompt: "{who} crouched and holding still"}
+  - {name: hack, source: "anims/ual.glb#Fixing_Kneeling", frames: 125, start: 0, clip_frames: 125,
+     loop: true, pre: 0, look_down: true, state: idle, prompt: "{who} kneeling and working with both hands on a device"}
+  - {name: interact, source: "anims/ual.glb#Interact", frames: 49, start: 1, clip_frames: 49,
+     loop: false, pre: 1, state: attack, prompt: "{who} reaching out and pressing a control with one hand"}
+  - {name: jab, source: "anims/ual.glb#Punch_Jab", frames: 29, start: 0, clip_frames: 29,
+     loop: false, pre: 4, post: 4, state: attack, prompt: "{who} throwing a fast straight jab punch"}
+  - {name: pistol_shoot, source: "anims/ual.glb#Pistol_Shoot", frames: 21, start: 0, clip_frames: 21,
+     loop: false, pre: 3, post: 3, state: attack, prompt: "{who} firing a pistol with one hand"}
+  - {name: hit, source: "anims/ual.glb#Hit_Chest", frames: 13, start: 0, clip_frames: 13,
+     loop: false, pre: 2, post: 3, look_down: true, state: attack, prompt: "{who} taking a hit to the chest and flinching back"}
+  - {name: death, source: "anims/ual.glb#Death01", frames: 61, start: 0, clip_frames: 61,
+     loop: false, pre: 0, post: 3, look_down: true, state: attack, prompt: "{who} falling to the ground and staying down"}
+  - {name: roll, source: "anims/ual.glb#Roll", frames: 35, start: 2, clip_frames: 37,
+     loop: true, pre: 2, look_down: true, state: attack, prompt: "{who} rolling forward on the ground"}
