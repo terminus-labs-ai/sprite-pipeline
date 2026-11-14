@@ -268,9 +268,9 @@ class TestGoRealEditAtHTTPSeam(Env):
     @staticmethod
     def _cutout():
         def fake_cutout(argv):
-            out_dir = Path(argv[argv.index("--out-dir") + 1])
-            out_dir.mkdir(parents=True, exist_ok=True)
-            (out_dir / "se.keyed.png").write_bytes(TINY_PNG)
+            out = Path(argv[argv.index("--out") + 1])
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(TINY_PNG)
 
         return {"cutout": fake_cutout}
 

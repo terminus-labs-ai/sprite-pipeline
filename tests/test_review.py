@@ -195,10 +195,10 @@ class ReviewFixture(Env):
         dst.write_bytes(b"drive")
 
     def _produce_still(self, argv):
-        """The faked sprite-gen cutout writes its --out-dir output."""
-        out = Path(argv[argv.index("--out-dir") + 1])
-        out.mkdir(parents=True, exist_ok=True)
-        (out / "se.keyed.png").write_bytes(TINY_PNG)
+        """The faked sprite-gen cutout writes its --out destination."""
+        out = Path(argv[argv.index("--out") + 1])
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(TINY_PNG)
 
     def _make_still(self, argv):
         # the faked edit writes a real PNG to its --copy-to destination
@@ -261,7 +261,8 @@ class TestFirstRunStopsForReview(ReviewFixture):
         cut = [c for c in self.fake.calls if Path(c[0]).name == "sprite-gen"]
         self.assertEqual(len(cut), 1, "\n".join(" ".join(c) for c in self.fake.calls))
         self.assertEqual(cut[0][1], "cutout")
-        self.assertEqual(cut[0][cut[0].index("--source") + 1], str(se))
+        # sprite-gen 4.3.0 cutout: input is positional (no --source)
+        self.assertEqual(cut[0][2], str(se))
         self.assertEqual(cut[0][cut[0].index("--key") + 1], "measured")
         for d in EDIT_DIRS:
             self.assertTrue((self.master / f"{d}.png").is_file(), d)
