@@ -134,7 +134,10 @@ def animate(cfg, workflow_path, values, ref_image, drive_video, out_clip, log):
     ref_name = upload(api, ref_image)
     log.append(f"$ upload {ref_image} -> {ref_name}")
 
-    # fill slots
+    # fill slots (the ref_image slot gets the uploaded reference name;
+    # anything the CLI placed in values["ref_image"] is replaced here)
+    values = dict(values)
+    values["ref_image"] = ref_name
     graph = load_workflow(workflow_path)
     fill_slots(graph, values, Path(workflow_path).name)
 
@@ -163,9 +166,52 @@ def animate(cfg, workflow_path, values, ref_image, drive_video, out_clip, log):
     return 0
 
 
+def edit(cfg, workflow_path, prompt, seed, image, prefix, copy_to, log):
+    """Run the edit workflow: fill slots, upload the image, post, collect
+    the output image, and copy it to copy_to.
+
+    Returns 0 on success, 1 on failure.
+    """
+    api = cfg["comfy_url"]
+    out_root = Path(cfg["comfy_output"])
+
+    # upload the image
+    name = upload(api, image)
+    log.append(f"$ upload {image} -> {name}")
+
+    # fill slots
+    graph = load_workflow(workflow_path)
+    fill_slots(graph, {
+        "prompt": prompt,
+        "seed": seed,
+        "ref_image": name,
+        "save": prefix,
+    }, Path(workflow_path).name)
+
+    # post and collect
+    files = post(api, graph, str(out_root))
+    log.append(f"$ {len(files)} image(s) from ComfyUI")
+
+    if not files:
+        log.append("no output image")
+        return 1
+
+    Path(copy_to).parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(files[0], copy_to)
+    log.append(f"png {copy_to}")
+    return 0
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
+    n = sub.add_parser("edit")
+    n.add_argument("--workflow", required=True, help="path to the workflow JSON file")
+    n.add_argument("--image", required=True, help="path to the prepared still to edit")
+    n.add_argument("--prompt", required=True)
+    n.add_argument("--seed", type=int, default=0)
+    n.add_argument("--prefix", required=True, help="filename_prefix for sp:save")
+    n.add_argument("--copy-to", required=True, help="path to write the output image")
     n = sub.add_parser("animate")
     n.add_argument("--workflow", required=True, help="path to the workflow JSON file")
     n.add_argument("--ref", required=True, help="path to the reference image")
@@ -184,20 +230,23 @@ if __name__ == "__main__":
 
     cfg = config.load()
     log = []
-    values = {
-        "prompt": a.prompt,
-        "pose_prompt": a.pose_prompt,
-        "negative": a.negative,
-        "width": a.w,
-        "height": a.h,
-        "length": a.length,
-        "seed": a.seed,
-        "pose_strength": a.pose_strength,
-        "save": f"{a.prefix}_{a.seed}",
-        "ref_image": a.video,  # placeholder, will be overwritten by upload
-        "drive_video": a.video,
-    }
-    rc = animate(cfg, a.workflow, values, a.ref, a.video, a.copy_to, log)
+    if a.cmd == "edit":
+        rc = edit(cfg, a.workflow, a.prompt, a.seed, a.image, a.prefix, a.copy_to, log)
+    else:
+        values = {
+            "prompt": a.prompt,
+            "pose_prompt": a.pose_prompt,
+            "negative": a.negative,
+            "width": a.w,
+            "height": a.h,
+            "length": a.length,
+            "seed": a.seed,
+            "pose_strength": a.pose_strength,
+            "save": f"{a.prefix}_{a.seed}",
+            "ref_image": a.ref,  # the upload inside animate() replaces it
+            "drive_video": a.video,
+        }
+        rc = animate(cfg, a.workflow, values, a.ref, a.video, a.copy_to, log)
     for line in log:
         print(line)
     sys.exit(rc)
