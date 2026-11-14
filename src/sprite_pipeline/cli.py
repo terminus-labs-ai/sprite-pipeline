@@ -133,8 +133,9 @@ def _print_still_plan(proj, ctx, char, reroll, force, out):
 
 def run_stills(ctx, turn, char, reroll, force, log, out):
     """FR 6 + FR 7: prepare the still, key the SE still for the palette, then
-    one edit per generated direction other than se (skip-if-exists; a reroll
-    forces its direction). Returns False if a step failed."""
+    one edit per generated direction other than se, each padded onto the
+    reference canvas like the SE still (skip-if-exists; a reroll forces its
+    direction). Returns False if a step failed."""
     p = ctx.project
     cs = next(c for c in p.characters if c.name == char)
     se = ctx.dir_still(char, "se")
@@ -163,7 +164,11 @@ def run_stills(ctx, turn, char, reroll, force, log, out):
                 "--prompt", prompt, "--seed", str(seed),
                 "--prefix", f"{char}/dir-{d}", "--copy-to", str(dst)]
         print(f"[{char}/{d}] direction edit: seed {seed}", file=out)
-        ok = run_cmds(ctx, [(argv, "edit")], log) and ok
+        if run_cmds(ctx, [(argv, "edit")], log):
+            # same canvas and scale as the prepared SE still (padding in place)
+            stills.prepare(dst, dst)
+        else:
+            ok = False
     return ok
 
 
