@@ -128,7 +128,7 @@ def _print_still_plan(proj, ctx, char, reroll, force, out):
         edit = "edit" if (force or reroll.get(d) is not None
                           or not ctx.dir_still(char, d).is_file()) else "skip"
         print(f"[{char}/{d}] direction edit ({edit}): {proj.workflows['edit']} on the "
-              f"prepared still ({turn[:48]}...)", file=out)
+              f"fitted still (se.fit.png) ({turn[:48]}...)", file=out)
 
 
 def run_stills(ctx, turn, char, reroll, force, log, out):
@@ -147,6 +147,11 @@ def run_stills(ctx, turn, char, reroll, force, log, out):
     if forced(se):
         print(f"[{char}] still preparation: prepare {cs.still} -> {se}", file=out)
         stills.prepare(cs.still, se)
+    # the edit's input: the fitted 832x1024 still (the edit's output latent size),
+    # not the padded reference; not a direction still
+    fit_png = ctx.master(char) / "se.fit.png"
+    if forced(se) or not fit_png.is_file():
+        stills.fit(cs.still, fit_png)
     if forced(ctx.master(char) / "se.keyed.png"):
         cmds = stages.plan_cutout(se, ctx.master(char))
         ok = run_cmds(ctx, cmds, log) and ok
@@ -160,7 +165,7 @@ def run_stills(ctx, turn, char, reroll, force, log, out):
         prompt = stills.dir_prompt(turn, d, cs.pronoun)
         # absolute, resolved at load (FR 1, amendment 1)
         argv = [sys.executable, "-m", "sprite_pipeline.comfy", "edit",
-                "--workflow", str(p.workflows["edit"]), "--image", str(se),
+                "--workflow", str(p.workflows["edit"]), "--image", str(fit_png),
                 "--prompt", prompt, "--seed", str(seed),
                 "--prefix", f"{char}/dir-{d}", "--copy-to", str(dst)]
         print(f"[{char}/{d}] direction edit: seed {seed}", file=out)

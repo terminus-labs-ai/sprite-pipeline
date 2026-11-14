@@ -1,6 +1,6 @@
 """Still preparation, direction-edit prompts and the review sheet (spec FR 6-8).
 
-`prepare` scales a still to fit the reference canvas, centres it and pads with
+`prepare` (`fit` then `place`) scales a still to fit the reference canvas, centres it and pads with
 the still's corner colour. The reference canvas is 1280x1280: the still is
 scaled to fit within 832x1024 (keeping aspect ratio), then pasted centred
 within that 832x1024 area at (224, 128) on the canvas. Every pixel outside the
@@ -40,41 +40,43 @@ def pronoun_forms(pronoun):
     return {"subj": subj.capitalize(), "sub": subj, "obj": obj, "pos": pos, "s": s}
 
 
-def prepare(src, dst):
-    """Scale a still of any size to fit the reference canvas, centre it, and
-    pad with its corner colour.
-
-    The still is scaled to fit within STILL_SIZE (832x1024) keeping aspect
-    ratio, then pasted centred within that area at REF_OFFSET (224, 128) on
-    a 1280x1280 canvas filled with the still's top-left pixel colour.
-
-    Returns the destination path.
-    """
+def fit(src, dst=None):
+    """Scale a still of any size to fit STILL_SIZE (832x1024) keeping aspect
+    ratio, centred on an 832x1024 canvas filled with the scaled still's
+    top-left pixel colour. Saves to `dst` when given. Returns the image."""
     from PIL import Image
 
     im = Image.open(src).convert("RGB")
     w, h = im.size
-
-    # scale to fit within STILL_SIZE, keeping aspect ratio
     scale = min(STILL_SIZE[0] / w, STILL_SIZE[1] / h)
     new_w = round(w * scale)
     new_h = round(h * scale)
     im = im.resize((new_w, new_h), Image.LANCZOS)
 
-    # corner colour (top-left pixel)
-    corner = im.getpixel((0, 0))
+    canvas = Image.new("RGB", STILL_SIZE, im.getpixel((0, 0)))
+    canvas.paste(im, ((STILL_SIZE[0] - new_w) // 2, (STILL_SIZE[1] - new_h) // 2))
+    if dst is not None:
+        Path(dst).parent.mkdir(parents=True, exist_ok=True)
+        canvas.save(dst)
+    return canvas
 
-    # canvas
-    canvas = Image.new("RGB", (REF_SIZE, REF_SIZE), corner)
 
-    # centre the scaled still within the STILL_SIZE area at REF_OFFSET
-    x = REF_OFFSET[0] + (STILL_SIZE[0] - new_w) // 2
-    y = REF_OFFSET[1] + (STILL_SIZE[1] - new_h) // 2
-    canvas.paste(im, (x, y))
+def place(fitted, dst):
+    """Paste an 832x1024 fitted still at REF_OFFSET on a 1280x1280 canvas
+    filled with its corner colour (top-left pixel). Returns `dst`."""
+    from PIL import Image
 
+    canvas = Image.new("RGB", (REF_SIZE, REF_SIZE), fitted.getpixel((0, 0)))
+    canvas.paste(fitted, REF_OFFSET)
     Path(dst).parent.mkdir(parents=True, exist_ok=True)
     canvas.save(dst)
     return dst
+
+
+def prepare(src, dst):
+    """Scale a still of any size to fit the reference canvas, centre it, and
+    pad with its corner colour: `fit` then `place`. Returns `dst`."""
+    return place(fit(src), dst)
 
 
 def dir_prompt(turn, d, pronoun):

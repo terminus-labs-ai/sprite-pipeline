@@ -207,7 +207,7 @@ def build_parser():
     sub = ap.add_subparsers(dest="cmd", required=True)
     n = sub.add_parser("edit")
     n.add_argument("--workflow", required=True, help="path to the workflow JSON file")
-    n.add_argument("--image", required=True, help="path to the prepared still to edit")
+    n.add_argument("--image", required=True, help="path to the fitted still to edit")
     n.add_argument("--prompt", required=True)
     n.add_argument("--seed", type=int, default=0)
     n.add_argument("--prefix", required=True, help="filename_prefix for sp:save")

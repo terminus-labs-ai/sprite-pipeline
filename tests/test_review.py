@@ -249,7 +249,10 @@ class TestFirstRunStopsForReview(ReviewFixture):
             # the pinned FR 7 prompt: the view's turn text in her/her
             self.assertEqual(e[e.index("--prompt") + 1],
                              expected_prompt(self.turn, d, "she"))
-            self.assertEqual(e[e.index("--image") + 1], str(self.master / "se.png"))
+            # the edit input is the fitted 832x1024 still, not the padded se.png
+            img = Path(e[e.index("--image") + 1])
+            self.assertEqual(img, self.master / "se.fit.png")
+            self.assertEqual(Image.open(img).size, (832, 1024))
         self.assertEqual(self.fake.animate_calls(), [])
         # prepared SE still (1280x1280, AC3), palette key, direction stills on disk
         se = self.master / "se.png"
@@ -312,6 +315,36 @@ class TestDirectionStillsShareTheReferenceCanvas(ReviewFixture):
             # the marker moved by REF_OFFSET (224, 128), scale unchanged
             self.assertEqual(im.getpixel((224 + 150, 128 + 150)), (200, 20, 20), d)
             self.assertEqual(im.getpixel((224 + 50, 128 + 50)), (10, 200, 10), d)
+
+
+class TestFitStillIsNotADirectionStill(ReviewFixture):
+    """se.fit.png (the edit input) never counts as a direction still: not a
+    missing still, not in the approval hash."""
+
+    def test_edit_image_is_832x1024_and_regenerated_on_force(self):
+        self.run_cli(["go", str(self.project)], fake=self.fake)
+        fit = self.master / "se.fit.png"
+        self.assertEqual(Image.open(fit).size, (832, 1024))
+        fit.write_bytes(b"stale")
+        self.run_cli(["go", str(self.project), "--force"], fake=self._fresh_fake())
+        self.assertEqual(Image.open(fit).size, (832, 1024))
+
+    def test_fit_png_does_not_affect_missing_stills_or_hash(self):
+        self.seed_stills()
+        code, out = self.run_cli(["approve", str(self.project), "courier"])
+        self.assertEqual(code, 0, out)
+        approved = (self.out_char / "refs.approved").read_text()
+        Image.new("RGB", (832, 1024), (1, 2, 3)).save(self.master / "se.fit.png")
+        code, out = self.run_cli(["approve", str(self.project), "courier"])
+        self.assertEqual(code, 0, out)
+        self.assertEqual((self.out_char / "refs.approved").read_text(), approved)
+
+    def test_fit_png_alone_is_not_a_still(self):
+        self.master.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (832, 1024), (1, 2, 3)).save(self.master / "se.fit.png")
+        code, out = self.run_cli(["approve", str(self.project), "courier"])
+        self.assertEqual(code, 2, out)
+        self.assertNotIn("se.fit", out)
 
 
 # ----------------------------------------------------------------- AC4-r2: they
