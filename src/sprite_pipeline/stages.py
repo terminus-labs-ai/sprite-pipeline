@@ -179,8 +179,10 @@ class StageCtx:
                          "copy-drive"))
             return cmds
         if stage == "animate":
-            who = next(c for c in p.characters if c.name == char).who
-            pose = anim.prompt.replace("{who}", who)
+            cs = next(c for c in p.characters if c.name == char)
+            pose = anim.prompt.replace("{who}", cs.who)
+            # FR 2: a character override `<animation>-<dir>` may set the seed
+            seed = (cs.overrides.get(f"{anim.name}-{d}") or {}).get("seed", p.seed)
             # per-animation workflow override (FR 3): anim.workflow replaces
             # p.workflows["animate"] for that animation; both are absolute,
             # resolved at load (FR 1)
@@ -190,12 +192,11 @@ class StageCtx:
                     "--ref", str(self.dir_still(char, d)), "--video",
                     self.input_mp4(char, anim, d).name,
                     "--w", str(p.sprite.frame_size), "--h", str(p.sprite.frame_size),
-                    "--length", str(anim.clip_frames), "--seed", str(p.seed),
+                    "--length", str(anim.clip_frames), "--seed", str(seed),
                     "--prefix", f"{char}/dir8-{anim.name}-{d}",
                     "--copy-to", str(self.clip(char, anim, d)),
                     "--prompt", stills.animate_prompt(
-                        project.load_view(p.view), p.style,
-                        next(c for c in p.characters if c.name == char), anim, d),
+                        project.load_view(p.view), p.style, cs, anim, d),
                     "--pose-prompt", pose]
             if p.pose_strength != 1.0:
                 argv += ["--pose-strength", str(p.pose_strength)]
