@@ -202,7 +202,7 @@ def edit(cfg, workflow_path, prompt, seed, image, prefix, copy_to, log):
     return 0
 
 
-if __name__ == "__main__":
+def build_parser():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     n = sub.add_parser("edit")
@@ -226,7 +226,11 @@ if __name__ == "__main__":
     n.add_argument("--pose-strength", type=float, default=1.0)
     n.add_argument("--prefix", default="anim/a")
     n.add_argument("--copy-to", required=True, help="path to write the output clip")
-    a = ap.parse_args()
+    return ap
+
+
+if __name__ == "__main__":
+    a = build_parser().parse_args()
 
     cfg = config.load()
     log = []
