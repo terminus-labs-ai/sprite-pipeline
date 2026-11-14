@@ -154,7 +154,7 @@ def run_stills(ctx, turn, char, reroll, force, log, out):
         stills.fit(cs.still, fit_png)
     if forced(ctx.master(char) / "se.keyed.png"):
         cmds = stages.plan_cutout(se, ctx.master(char))
-        ok = run_cmds(ctx, cmds, log) and ok
+        ok = run_cmds(ctx, cmds, log, out) and ok
     for d in p.generate:
         if d == "se":
             continue  # the still's own direction keeps the prepared image
@@ -169,7 +169,7 @@ def run_stills(ctx, turn, char, reroll, force, log, out):
                 "--prompt", prompt, "--seed", str(seed),
                 "--prefix", f"{char}/dir-{d}", "--copy-to", str(dst)]
         print(f"[{char}/{d}] direction edit: seed {seed}", file=out)
-        if run_cmds(ctx, [(argv, "edit")], log):
+        if run_cmds(ctx, [(argv, "edit")], log, out):
             # same canvas and scale as the prepared SE still (padding in place)
             stills.prepare(dst, dst)
         else:
@@ -177,8 +177,14 @@ def run_stills(ctx, turn, char, reroll, force, log, out):
     return ok
 
 
-def run_cmds(ctx, cmds, log):
-    """Execute planned (argv, label) steps; copy_file runs in-process (AC8)."""
+def run_cmds(ctx, cmds, log, out=None):
+    """Execute planned (argv, label) steps; copy_file runs in-process (AC8).
+
+    On non-zero exit, prints to *out*: the label, the quoted command, the
+    exit code, and the last ~20 lines of stderr (stdout if stderr is empty).
+    Successful steps stay quiet.  When *out* is None the failure info goes
+    to stdout (sys.stdout).
+    """
     ok = True
     for cmd_argv, label in cmds:
         if cmd_argv[0] == "copy_file":
@@ -192,6 +198,12 @@ def run_cmds(ctx, cmds, log):
             log.append(r.stderr.strip())
         if r.returncode != 0:
             ok = False
+            quoted = " ".join(stages.quote(x) for x in cmd_argv)
+            print(f"[{label}] {quoted} exited {r.returncode}", file=out)
+            tail_lines = (r.stderr or r.stdout).splitlines()
+            tail = tail_lines[-20:] if len(tail_lines) > 20 else tail_lines
+            for line in tail:
+                print(f"  {line}", file=out)
             break
     return ok
 
@@ -357,7 +369,7 @@ def main(argv=None, out=None):
                         shutil.rmtree(ctx.frames_dir(char, anim, d), ignore_errors=True)
                         ctx.paths.motion_cache.mkdir(parents=True, exist_ok=True)
                         ctx.paths.comfy_input.mkdir(parents=True, exist_ok=True)
-                    ok = run_cmds(ctx, cmds, log)
+                    ok = run_cmds(ctx, cmds, log, out)
                     if not ok:
                         row[s] = "FAIL"
                         failed.append(f"{n}/{d} {s}")
@@ -386,18 +398,15 @@ def main(argv=None, out=None):
                     failed.append(f"{char} export")
             else:
                 shutil.rmtree(ctx.sprite_out(char), ignore_errors=True)
-                bad = False
+                ok = True
                 for cmd_argv, label in ctx.plan_kit_stage(char, s, anim_names, dirs):
-                    log.append("$ " + " ".join(stages.quote(x) for x in cmd_argv))
-                    r = subprocess.run(cmd_argv, env=ctx.env, capture_output=True, text=True)
-                    if r.returncode != 0:
-                        bad = True
+                    if not run_cmds(ctx, [(cmd_argv, label)], log, out):
+                        ok = False
                         break
-                if bad:
-                    print(f"[{s}] FAIL", file=out)
-                    failed.append(f"{char} {s}")
-                else:
+                if ok:
                     print(f"[{s}] ok", file=out)
+                else:
+                    failed.append(f"{char} {s}")
 
     print("\nsummary", file=out)
     if pair_stages:
