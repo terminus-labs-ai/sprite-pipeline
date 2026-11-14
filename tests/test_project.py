@@ -22,8 +22,13 @@ ASSET = (FIXTURES / "still" / "a.png").read_bytes()
 
 
 def base_project(generate="[s, se, e, ne, n]", mirror="{sw: se, w: e, nw: ne}",
-                 naming="{animation}_{dir}", frame_size=704):
-    """A minimal valid project; the callers tweak one field per case."""
+                 naming="{animation}_{dir}", frame_size=704, animation_dirs=None,
+                 characters="- {name: courier, still: stills/courier.png, describe: \"a courier\", pronoun: she}"):
+    """A minimal valid project; the callers tweak one field per case.
+    `animation_dirs` pins the animation's `directions:` (needed when the
+    animation must cover fewer directions than generate, e.g. two characters
+    sharing the default naming)."""
+    anim_dirs = "" if animation_dirs is None else f", directions: {animation_dirs}"
     return f"""style: "2D game sprite art"
 view: isometric
 directions:
@@ -36,9 +41,9 @@ seed: 7
 pose_strength: 0.75
 workflows: {{edit: workflows/edit.json, animate: workflows/animate.json}}
 characters:
-  - {{name: courier, still: stills/courier.png, describe: "a courier", pronoun: she}}
+  {characters}
 animations:
-  - {{name: run, source: anims/ual.glb#Jog_Fwd_Loop, frames: 22, start: 1, clip_frames: 45, loop: true, prompt: "{{who}} jogging in place, head up"}}
+  - {{name: run, source: anims/ual.glb#Jog_Fwd_Loop, frames: 22, start: 1, clip_frames: 45, loop: true, prompt: "{{who}} jogging in place, head up"{anim_dirs}}}
 """
 
 
@@ -49,6 +54,9 @@ def write_project(tmp, text, with_still=True, with_glb=True):
     p.write_text(text)
     if with_still:
         f = t / "stills" / "courier.png"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(ASSET)
+        f = t / "stills" / "guard.png"
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_bytes(ASSET)
     if with_glb:
@@ -300,6 +308,73 @@ class TestExampleProject(unittest.TestCase):
             self.assertEqual(proj.rig, {"neck": "DEF-neck", "head": "DEF-head"})
             self.assertEqual(proj.seed, 7)
             self.assertEqual(proj.pose_strength, 0.75)
+
+
+class TestFaceDirs(unittest.TestCase):
+    """FR 2: a character without face_dirs gets the view preset's camera-facing
+    directions intersected with directions.generate, in generate order; an
+    explicit list, including [], is kept as given."""
+
+    def test_r1_face_dirs_omitted_defaults_to_view_face_dirs(self):
+        # generate [s, se, e]: the default is the preset's camera-facing set
+        # restricted to what is generated — expected independently of the code
+        with tempfile.TemporaryDirectory() as t:
+            text = base_project(generate="[s, se, e]", mirror="{}")
+            proj = project.load_project(write_project(t, text))
+            self.assertEqual(proj.characters[0].face_dirs, ["s", "se", "e"])
+
+    def test_r2_default_follows_generate_order_including_sw_w(self):
+        # generate [w, sw, e, se, s]: the default is the preset members that
+        # are generated, listed in generate order (not preset order)
+        with tempfile.TemporaryDirectory() as t:
+            text = base_project(generate="[w, sw, e, se, s]", mirror="{}",
+                                animation_dirs="[w]")
+            proj = project.load_project(write_project(t, text))
+            self.assertEqual(proj.characters[0].face_dirs, ["w", "sw", "e", "se", "s"])
+
+    def test_r2_all_five_face_dirs_when_sw_w_are_generated(self):
+        # generate [s, se, e, sw, w]: all five preset members appear; sw and w
+        # are in the default only because they are generated
+        with tempfile.TemporaryDirectory() as t:
+            text = base_project(generate="[s, se, e, sw, w]", mirror="{}")
+            proj = project.load_project(write_project(t, text))
+            self.assertEqual(proj.characters[0].face_dirs, ["s", "se", "e", "sw", "w"])
+
+    def test_r2_explicit_face_dirs_kept_as_given(self):
+        two = ("- {name: courier, still: stills/courier.png, describe: \"a courier\", pronoun: she, face_dirs: [e]}\n"
+               "  - {name: guard, still: stills/guard.png, describe: \"a guard\", pronoun: he, face_dirs: []}")
+        with tempfile.TemporaryDirectory() as t:
+            text = base_project(generate="[s, se, e]", mirror="{}", naming="{character}_{animation}_{dir}",
+                                characters=two)
+            proj = project.load_project(write_project(t, text))
+            self.assertEqual(proj.characters[0].face_dirs, ["e"])  # explicit non-empty, as given
+            self.assertEqual(proj.characters[1].face_dirs, [])     # explicit [] is none, not the default
+
+    def test_r4_face_dirs_unknown_direction(self):
+        # explicit face_dirs is validated exactly as before: the error names
+        # the index, the field and the offending value
+        with tempfile.TemporaryDirectory() as t:
+            text = base_project(generate="[s, se, e]", mirror="{}",
+                                characters="- {name: courier, still: stills/courier.png, describe: \"a courier\", pronoun: she, face_dirs: [n]}")
+            with self.assertRaises(project.ProjectError) as cm:
+                project.load_project(write_project(t, text))
+            self.assertEqual(
+                str(cm.exception),
+                "project.yaml: characters[0].face_dirs: 'n' not in directions.generate")
+
+    def test_r1_the_face_line_comes_from_the_view_preset_not_project_py(self):
+        # the default set is declared in views/isometric.yaml: the preset's
+        # face_dirs covers exactly the five camera-facing directions of the
+        # view's own turn prompts (the back-facing ne, n, nw are absent), and
+        # project.py hard-codes no direction list
+        preset = project.load_view("isometric")
+        self.assertEqual(set(preset["face_dirs"]), {"s", "se", "e", "sw", "w"})
+        self.assertIn("turn", preset)
+        src = (Path(project.__file__).read_text().replace("\n", " "))
+        self.assertNotIn("s\", \"se\", \"e", src)
+        self.assertNotIn("'s', 'se', 'e'", src)
+        readme = (Path(project.__file__).resolve().parents[2] / "README.md").read_text()
+        self.assertIn("face_dirs: []", readme)  # README documents [] as none
 
 
 class TestViewPreset(unittest.TestCase):

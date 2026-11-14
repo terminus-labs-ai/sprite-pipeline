@@ -213,6 +213,11 @@ def load_project(path, views_dir=VIEWS_DIR):
                    pose_strength=pose_strength, output=output, rig=rig, workflows=workflows,
                    characters=[], animations=[])
 
+    # the view's camera-facing directions (FR 2): the preset's face_dirs
+    # intersected with directions.generate, in generate order; a preset
+    # without the key contributes nothing
+    preset_face = [x for x in generate if x in (preset.get("face_dirs") or [])]
+
     # characters (FR 2; FR 4: missing still)
     for i, c in enumerate(d.get("characters") or []):
         name = c.get("name")
@@ -228,7 +233,14 @@ def load_project(path, views_dir=VIEWS_DIR):
             raise ProjectError(f"{path.name}: characters[{i}].still: {still} not found")
         if c.get("pronoun") not in PRONOUNS:
             raise ProjectError(f"{path.name}: characters[{i}].pronoun: {c.get('pronoun')!r} (he, she or they)")
-        face_dirs = c.get("face_dirs") or []
+        # face_dirs (FR 2): omitting the key defaults to the view's camera-
+        # facing directions that are generated (preset face_dirs ∩ generate,
+        # in generate order); an explicit list, including an explicit [],
+        # is kept as given — [] means no face line.
+        if "face_dirs" in c:
+            face_dirs = list(c["face_dirs"] or [])
+        else:
+            face_dirs = list(preset_face)
         for x in face_dirs:
             if x not in generate:
                 raise ProjectError(f"{path.name}: characters[{i}].face_dirs: {x!r} not in directions.generate")

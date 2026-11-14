@@ -5,6 +5,10 @@
 # facing of the high isometric camera.
 # camera, face, background: the animate prompt's view lines ({subj} starts a
 # sentence, {sub} is mid-sentence).
+# face_dirs: the view's full set of camera-facing directions (FR 2). A
+# character that omits face_dirs gets this list intersected with
+# directions.generate, in generate order; a non-generated direction is dropped.
+face_dirs: [s, se, e, sw, w]
 view: isometric
 camera: "Seen from a high fixed isometric camera looking down at {obj} at about 45 degrees, small in the frame with empty space around {obj}, full body always inside the frame."
 face: "{subj} keep{s} {pos} head up and {pos} face clearly visible, eyes looking ahead in the direction {sub} move{s}."
@@ -13,5 +17,7 @@ turn:
   s: "turned to face straight down toward the bottom of the image, toward the camera, so we see {pos} front from above"
   se: "kept facing the lower right of the image, toward the camera, so we see {pos} front from above"
   e: "turned to face directly toward the right side of the image, seen in side profile from above"
+  sw: "turned to face the lower left of the image, toward the camera, so we see {pos} front from above"
+  w: "turned to face directly toward the left side of the image, seen in side profile from above"
   ne: "turned away from the camera, facing toward the upper right of the image, so we see {pos} back and the back of {pos} head from above at three-quarters"
   n: "turned fully away from the camera, facing straight up toward the top of the image, so we see only {pos} back and the back of {pos} head from above"
