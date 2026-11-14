@@ -1,6 +1,21 @@
 # sprite-pipeline
 
-Turns one character still into a pixel-art sprite set for every move in a shared motion library: a Blender mannequin drive, motion transfer with Wan Animate 2 in ComfyUI, keying and looping with `sprite-gen`, pixelization at a fixed scale, and a Godot 4 `SpriteFrames` export. A new character needs a new kit, not new motion work.
+Turns one character still into a pixel-art sprite set for a shared motion library. A project file (`project.yaml`) describes the whole job — art style, view and directions, characters and a list of Blender animations — and one command, `sprite-pipeline go project.yaml`, drives a Blender mannequin (the Quaternius Universal Animation Library), motion-transfers it with Wan Animate 2 in ComfyUI, keys and loops with `sprite-gen`, pixelizes at a fixed scale and exports a Godot 4 `SpriteFrames` set. All paths in the project file are relative to it, so the folder copies to another machine as-is.
+
+## Requirements
+
+- **ComfyUI** with the models and nodes the shipped workflows load. `src/sprite_pipeline/workflows/edit.json` (FLUX.2-klein 4B) loads:
+  - Models: `flux-2-klein-4b.safetensors` (UNet), `qwen_3_4b.safetensors` (CLIP, flux2), `flux2-vae.safetensors` (VAE)
+  - Nodes: `UNETLoader`, `CLIPLoader`, `VAELoader`, `CLIPTextEncode`, `ConditioningZeroOut`, `CFGGuider`, `EmptyFlux2LatentImage`, `Flux2Scheduler`, `KSamplerSelect`, `RandomNoise`, `SamplerCustomAdvanced`, `VAEDecode`, `SaveImage`, `LoadImage`, `ImageScaleToTotalPixels`, `VAEEncode`, `ReferenceLatent`
+  `src/sprite_pipeline/workflows/animate.json` (Wan Animate 2 with the lightx2v LoRA) loads:
+  - Models: `wan_animate_2_int8_convrot.safetensors` (UNet), `lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors` (LoRA), `umt5_xxl_fp8_e4m3fn_scaled.safetensors` (CLIP, wan), `clip_vision_h.safetensors` (CLIP Vision), `Wan2_1_VAE_bf16.safetensors` (VAE)
+  - Nodes: `UNETLoader`, `LoraLoaderModelOnly`, `ModelSamplingSD3`, `CLIPLoader`, `CLIPVisionLoader`, `VAELoader`, `CLIPTextEncode`, `ImageScale`, `LoadVideo`, `GetVideoComponents`, `CLIPVisionEncode`, `ImageFromBatch`, `WanAnimate2ToVideo`, `KSamplerSelect`, `BasicScheduler`, `SamplerCustom`, `TrimVideoLatent`, `VAEDecode`, `SaveImage`, `LoadImage`
+  (ComfyUI 0.3-style custom nodes; ComfyUI setup — installing it, its models and nodes — is manual.)
+- **Blender 5.x** (renders the mannequin drives headless).
+- **ffmpeg** and **ffprobe** (pack the rendered frames into drive clips).
+- **img2webp** (the child tools' extra binary; the config's `extra_path` can point at it).
+- **Quaternius Universal Animation Library (CC0)** — the motion library the drives come from; download it from Quaternius' itch.io page and use `Animation Library[Standard]/Godot/AnimationLibrary_Godot_Standard.glb`.
+- **Python 3.12+** and [uv](https://docs.astral.sh/uv/) for the install.
 
 ## Install
 
@@ -8,69 +23,108 @@ Turns one character still into a pixel-art sprite set for every move in a shared
 uv tool install git+https://github.com/terminus-labs-ai/sprite-pipeline@main
 ```
 
-External tools it calls: ComfyUI (with the FLUX.2-klein and Wan Animate 2 models), Blender 5.x, `sprite-gen`, and `ffmpeg`/`ffprobe`/`img2webp`.
+This installs the `sprite-pipeline` command together with `sprite-gen` (pinned at `v4.3.0`), which the pipeline calls from its own environment for keying (`video-frames`), looping (`video-loop`) and the palette cutout (`cutout`).
 
-## Configure
+## Config
 
-Host locations live in `$SPRITE_PIPELINE_HOME/config.toml` (default `~/.sprite-pipeline/config.toml`). Every key is optional; defaults are in `src/sprite_pipeline/config.py`.
+Host locations live in `$SPRITE_PIPELINE_HOME/config.toml` (default `~/.sprite-pipeline/config.toml`). Every key is optional and unknown keys are an error; the config keeps only machine locations:
 
 ```toml
-comfy_url = "http://127.0.0.1:8188"
-comfy_input = "/path/to/comfyui/input"     # refs and drive clips go here
-comfy_output = "/path/to/comfyui/output"
-blender = "/path/to/blender"
-sprite_gen = "sprite-gen"
-anim_src = "/path/to/anim-src"             # relative GLB paths in motions.yaml resolve here
-motion_cache = "/path/to/motion-cache"     # rendered drives, shared by every kit
-extra_path = "/path/to/ffmpeg-bin"         # prepended to PATH for child tools
+comfy_url = "http://127.0.0.1:8188"   # ComfyUI's API server (default shown)
+comfy_input = "/path/to/comfyui/input"   # ComfyUI's input/ dir; refs and drive clips go here (default: $SPRITE_PIPELINE_HOME/comfyui/input)
+comfy_output = "/path/to/comfyui/output" # ComfyUI's output dir (default: $SPRITE_PIPELINE_HOME/comfyui/output)
+blender = "blender"                        # Blender executable (default: blender on PATH)
+motion_cache = "/path/to/motion-cache"  # rendered drives, shared by every project (default: $SPRITE_PIPELINE_HOME/motion-cache)
+drive_lsr = ""                             # optional Blender file holding the drive scene
+extra_path = "/path/to/ffmpeg-bin"      # prepended to PATH for child tools (ffmpeg, ffprobe, img2webp)
 ```
 
-The default motion library uses the Quaternius Universal Animation Library (CC0) at `<anim_src>/ual/Animation Library[Standard]/Godot/AnimationLibrary_Godot_Standard.glb`.
+## Project file
 
-## Build a sprite set
+A `project.yaml` describes a whole sprite job. The complete reference in `examples/isometric/project.yaml`; every path in it is relative to the file.
+
+Top level:
+
+- `style` — the art style prompt line (no default; free text).
+- `view` — `isometric` (the only view in this increment). The view preset in the package carries the camera prompt line, the face line and the turn prompt per direction.
+- `directions.generate` — the list of directions rendered (`n ne e se s sw w nw`); required.
+- `directions.mirror` — map of mirrored direction to its generate source (e.g. `{sw: se, w: e, nw: ne}`); the mirror is flipped at export. Default: none.
+- `sprite.scale` — the pixelize scale (numeric, no default).
+- `sprite.colors` — palette size for the pixelize (no default).
+- `sprite.accent_boost` — accent-boost factor for the palette (no default).
+- `sprite.fps` — frames per second for the drives and export (no default).
+- `sprite.frame_size` — the square drive-render and animation frame size in pixels (no default).
+- `naming` — the animation-name pattern, with `{character}`, `{animation}` and `{dir}`; default `{animation}_{dir}`. Must produce unique names.
+- `export` — `godot` (the only supported target; default).
+- `seed` — ComfyUI seed for edits and animate (default `0`).
+- `pose_strength` — pose strength for the animate stage (default `1.0`).
+- `output` — output directory, relative to the project file (default `out`).
+- `rig.neck` — the rig's neck bone name (default `DEF-neck`, the Quaternius mannequin).
+- `rig.head` — the rig's head bone name (default `DEF-head`).
+- `workflows.edit` — path to the FLUX.2-klein edit workflow JSON (required; relative to the project file).
+- `workflows.animate` — path to the Wan Animate 2 animate workflow JSON (required; relative to the project file).
+- `characters` — list of characters (below).
+- `animations` — list of animations (below).
+
+`characters[]` (FR 2):
+
+- `name` — the character name (used in `naming` and output paths).
+- `still` — the isometric still of the character, relative to the project file (e.g. `stills/courier.png`).
+- `describe` — a one-line description of the character.
+- `pronoun` — `he`, `she` or `they` (fills the view's face line and turn prompts).
+- `who` — optional pose subject; defaults to the pronoun's object form (`him`/`her`/`them`).
+- `face_dirs` — optional list of directions that face the camera; defaults to the generated directions that face the camera for the view.
+- `overrides` — optional map `<animation>-<dir>` → `{seed: N, extra: "<prompt line>"}` for rerolls of a specific pair.
+
+`animations[]` (FR 3):
+
+- `name` — the animation name (used in `naming`).
+- `source` — `<file>.glb#<Action>`; the GLB must exist and the action must be a real action in it (e.g. `anims/ual.glb#Jog_Fwd_Loop`).
+- `frames` — the animation's cycle length in frames.
+- `loop` — whether the loop stage cuts a fixed cycle (`true`) or a single pass (`false`).
+- `prompt` — the pose prompt, with `{who}` substituted (e.g. `{who} jogging in place, head up`).
+- `start` — first frame of the clip (default `0`).
+- `clip_frames` — clip length (must be `4n+1`, ≥ `start + frames` when `loop: true`); default `start + frames` rounded up to the next `4n+1`.
+- `repeats` — how many times the drive repeats the cycle (default `1`).
+- `pre` — pre-hold frames before the cycle (default `1`).
+- `post` — post-hold frames after the cycle (default `0`).
+- `look_down` — whether the move looks down (`false` lifts the head 25° via `rig.neck` and `rig.head`; default `false`).
+- `state` — sprite-gen state for the loop stage: `idle`, `walk`, `run`, `jump` or `attack` (default `attack`).
+- `seam_max` — optional seam-pop cap for the loop stage.
+- `directions` — optional subset of `directions.generate`; defaults to all of them.
+- `workflow` — a per-animation override of `workflows.animate` is specified in the project-file format, but as of this increment the loader does not read it, so the key has no effect (filed as `sprite-pipeline-11`). The `workflows.*` paths also resolve only against the project directory; the shipped workflow JSON lives inside the package, so `workflows.edit` and `workflows.animate` must point at files you place next to your `project.yaml`.
+
+## Quickstart
+
+The example in `examples/isometric/` carries the current motion library (13 animations, run/punch/sneak tested) and one character entry. Copy it and run:
 
 ```bash
-sprite-pipeline <kit.yaml> --moves run,punch --dirs s,se --dry-run
-sprite-pipeline <kit.yaml> --moves run,punch [--stage drive|animate|key|loop|pixel|export] [--force] [--motions <motions.yaml>]
+cp -r examples/isometric my-game
+cd my-game
+# drop your own isometric still of your character into stills/courier.png
+# and the Quaternius UAL Godot Standard GLB into anims/ual.glb
+sprite-pipeline go project.yaml --dry-run   # prints the plan, runs nothing
+sprite-pipeline go project.yaml             # prepares the still, makes the four other direction edits
+# -> writes out/courier/refs-sheet.png and stops for review
+# look at the sheet, then:
+sprite-pipeline approve project.yaml courier
+sprite-pipeline go project.yaml             # drive, animate, key, loop, pixel, export
 ```
 
-Stages per (move, direction): `drive` (Blender render, cached and shared across kits), `animate` (Wan Animate 2), `key` (`sprite-gen video-frames`), `loop` (`sprite-gen video-loop`). Then per kit: `pixel` (one pixelize call over all sets) and `export`. Stages whose output exists are skipped unless `--force`. A failed pair is logged and the build continues, ending with a summary table (exit 1 if anything failed).
+`go` writes, under `<project dir>/out/<character>/`:
 
-Output under the kit's `output_root`: `clips/<move>-<dir>.mp4`, `loops/<move>-<dir>/cycle/`, and `sprites/<kit>/` with the pixel frames, mirrored `sw`←`se`, `w`←`e`, `nw`←`ne`, `atlas.png`, `sprite_frames.tres` (Godot 4, one animation per `<move>_<dir>`, atlas path relative to the `.tres`) and `contact-sheet.png` (rows = moves, columns = 8 directions).
+- `master/` — the prepared still, the four direction stills and the keyed SE still (the palette reference).
+- `refs-sheet.png` — the direction stills side by side, one per direction (the review artefact).
+- `refs.approved` — written by `approve`; holds the hash of the direction stills. A change to any of them (or a `--reroll`) invalidates it and `go` stops at the sheet again.
+- `clips/<animation>-<dir>.mp4` — the animated clips.
+- `loops/<animation>-<dir>/cycle/` — the looped frames.
+- `sprites/` — the pixel frames (one per animation × direction), `atlas.png`, `sprite_frames.tres` (Godot 4 `SpriteFrames`, one animation per `naming` entry) and `contact-sheet.png`.
 
-One bad clip: add `overrides: {<move>-<dir>: {seed: N, extra: "<prompt line>"}}` to the kit, rerun that pair with `--moves <move> --dirs <dir> --stage animate --force`, then the `key`, `loop`, `pixel` and `export` stages.
+Narrow a run with `--characters a,b`, `--animations run,punch`, `--dirs s,se`, `--stage drive|animate|key|loop|pixel|export`; reroll one still with `--reroll <char>:<dir>=<seed>`; skip the review stop for one run with `--no-stop`; rerun stages whose output exists with `--force`; preview with `--dry-run`. A failed (animation, direction) is logged and the run continues; the summary ends with exit code 1 when anything failed. Exit code 0 means done or stopped for review (the stop prints the sheet path and the approve command); exit code 2 means the project file is invalid.
 
-## Motion library (`motions.yaml`)
+## Platforms
 
-Per move: GLB action, repeats and pre/post holds, `head_pitch` (25 keeps faces visible; 0 for moves that look down), clip length (Wan needs 4n+1 frames), loop cycle (`fixed` or `once`), sprite-gen state, optional `seam_max`, pose prompt (`{who}` is filled from the kit) and the 5 generated directions. Drives are cached as `<motion_cache>/<move>-<dir>-<hash>.mp4` (hash of the move params) and copied to ComfyUI's input as `drive-<move>-<dir>-<hash>.mp4`.
-
-## Character kit (`<kit>.yaml`)
-
-`tests/fixtures/guard.yaml` is a complete example: `pose_who`, `pose_strength` (0.75), per-direction ComfyUI refs, look/face/background prompt lines (the face line applies only to `face_dirs`), palette key frame, pixel scale and colours, seed, `output_root` and optional `overrides`.
-
-Making a kit by hand:
-
-1. Swap the character into an existing kit's isometric SE still: `python -m sprite_pipeline.comfy_run edit --image <iso-se.png> --prompt "Replace the character with a different character, keeping the exact same high isometric camera angle, facing, pose, size in the frame and art style. The new character is ..."`. Pick a seed with empty hands and no drop shadow.
-2. Directions: four more edits of that still (`s`, `e`, `ne`, `n`) with an "exact same character ... but now turned ..." prompt.
-3. Pad each still to 1280×1280 with its own corner colour (832×1024 pasted at 224,128) as `<comfy_input>/<kit>-ref-<dir>.png`; key the SE still with `sprite-gen cutout --key measured` for the palette.
-4. Write the kit YAML and run the build.
-
-Avoid soft headwear (caps) that hands can touch in back-view attacks; the model takes it off.
-
-## Other commands
-
-- `python -m sprite_pipeline.comfy_run still|edit|i2v|animate ...`: run the ComfyUI graphs from the shell.
-- `python -m sprite_pipeline.pixelize --ref <key.png> --scale <s> --colors 40 --out <dir> --set <name>=<frames-dir>`: pixelize keyed frames with a fixed scale and a palette from the reference.
-- `blender -b --python src/sprite_pipeline/render_drive.py -- <glb> <Action> <out_dir> <facing> <elev> <repeats> <pre> <post> [head_pitch]`: render one drive (`RW`/`RH` set the size).
-
-## Tests
-
-```bash
-uv sync --frozen
-env -u PYTHONPATH uv run --frozen python -m pytest
-```
-
-No network, GPU or real clips needed.
+Linux with an NVIDIA GPU is tested; Windows is expected to work, is untested, and reports are welcome. (macOS is not tested.)
 
 ## License
 
