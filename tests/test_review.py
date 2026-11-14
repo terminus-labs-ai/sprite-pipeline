@@ -290,6 +290,30 @@ class TestFirstRunStopsForReview(ReviewFixture):
                              str(resources.files("sprite_pipeline") / "workflows" / "edit.json"))
 
 
+class TestDirectionStillsShareTheReferenceCanvas(ReviewFixture):
+    """An 832x1024 edit output is padded onto the 1280x1280 reference canvas
+    exactly as the prepared SE still is, so every reference has one scale."""
+
+    def _make_still(self, argv):
+        dst = Path(argv[argv.index("--copy-to") + 1])
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        im = Image.new("RGB", (832, 1024), (10, 200, 10))  # green background
+        im.paste((200, 20, 20), (100, 100, 200, 200))  # a marker inside
+        im.save(dst)
+
+    def test_edit_output_is_placed_like_prepare_with_corner_fill(self):
+        code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+        self.assertEqual(code, 0, out)
+        for d in EDIT_DIRS:
+            im = Image.open(self.master / f"{d}.png").convert("RGB")
+            self.assertEqual(im.size, (1280, 1280), d)
+            self.assertEqual(im.getpixel((0, 0)), (10, 200, 10), d)  # corner fill
+            self.assertEqual(im.getpixel((1279, 1279)), (10, 200, 10), d)
+            # the marker moved by REF_OFFSET (224, 128), scale unchanged
+            self.assertEqual(im.getpixel((224 + 150, 128 + 150)), (200, 20, 20), d)
+            self.assertEqual(im.getpixel((224 + 50, 128 + 50)), (10, 200, 10), d)
+
+
 # ----------------------------------------------------------------- AC4-r2: they
 
 class TestPronounThey(ReviewFixture):
