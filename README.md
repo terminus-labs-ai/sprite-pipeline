@@ -94,6 +94,10 @@ Top level:
 - `directions` — optional subset of `directions.generate`; defaults to all of them.
 - `workflow` — a per-animation override of `workflows.animate` is specified in the project-file format, but as of this increment the loader does not read it, so the key has no effect (filed as `sprite-pipeline-11`). The `workflows.*` paths also resolve only against the project directory; the shipped workflow JSON lives inside the package, so `workflows.edit` and `workflows.animate` must point at files you place next to your `project.yaml`.
 
+Workflow slots:
+
+Each workflow JSON is a ComfyUI API graph. The build fills the nodes titled `sp:<slot>` with the step's values; a slot the step needs but the workflow lacks is an error naming the workflow and the title. The full slot list is `sp:prompt`, `sp:negative`, `sp:pose_prompt`, `sp:seed`, `sp:ref_image`, `sp:drive_video`, `sp:width`, `sp:height`, `sp:length`, `sp:pose_strength` and `sp:save`; the shipped `edit.json` carries `sp:prompt`, `sp:seed`, `sp:ref_image` and `sp:save`, and the shipped `animate.json` carries all eleven.
+
 ## Quickstart
 
 The example in `examples/isometric/` carries the current motion library (13 animations, run/punch/sneak tested) and one character entry. Copy it and run:
