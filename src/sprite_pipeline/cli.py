@@ -364,7 +364,7 @@ def main(argv=None, out=None):
                         break
                     row[s] = "ok"
                 status[(n, d)] = row
-                print(f"[{n}/{d}] " + "  ".join(f"{s}={row[s]}" for s in pair_stages), file=out)
+                print(f"[{n}/{d}] " + "  ".join(f"{s}={row.get(s, '-')}" for s in pair_stages), file=out)
 
         for s in kit_stages:
             done = ctx.pixel_done(char, anim_names, dirs) if s == "pixel" else ctx.export_done(char)

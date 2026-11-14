@@ -502,8 +502,9 @@ class TestSpriteGenArgv(Env):
         argv, _label = cmds[0]
         self.assertEqual(argv[0], str(stages.sprite_gen_exe()))
         self.assertEqual(argv[1], "cutout")
-        self.assertEqual(argv[argv.index("--source") + 1], str(still))
-        self.assertEqual(argv[argv.index("--out-dir") + 1], str(out_dir))
+        # sprite-gen 4.3.0 cutout: input is positional, --out <file> (not --source/--out-dir)
+        self.assertEqual(argv[2], str(still))
+        self.assertEqual(argv[argv.index("--out") + 1], str(out_dir / "courier.keyed.png"))
         self.assertEqual(argv[argv.index("--key") + 1], "measured")
 
 
@@ -814,6 +815,71 @@ class TestCliSurface(Env):
         import importlib.util
         self.assertIsNone(importlib.util.find_spec("sprite_pipeline.build"))
         self.assertFalse((ROOT / "src" / "sprite_pipeline" / "motions.yaml").exists())
+
+
+# --------------------------------------------------------------- Pair-status KeyError
+
+class TestPairStatusKeyError(Env):
+    """When a pair stage fails, the summary table must not raise KeyError.
+
+    At main 4e3b883 the per-pair status line did:
+        print(f"[{n}/{d}] " + "  ".join(f"{s}={row[s]}" for s in pair_stages))
+    but `row` only contains stages that completed — a failed stage breaks the
+    loop, so later stages are missing from `row`, and row[s] raises KeyError.
+
+    The summary table below already used row.get(s, "-"), but the per-pair
+    line did not. This test verifies both render without exception when a
+    mid-pair failure occurs.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.f = ProjectFixture(self.tmp)
+        self.f.approve()
+
+    def test_failed_animate_does_not_raise_keyerror_in_status_line(self):
+        """Fake animate to fail; the per-pair line and summary must render.
+
+        With all pair stages (drive, animate, key, loop), a failure at animate
+        leaves key/loop unrun — row has no "key" entry → KeyError on the
+        per-pair status line.
+        """
+        fake = FakeRun(fails={"animate": 1})
+        # produce drive output so drive succeeds before animate fails
+        def _produce_drive(argv):
+            if "render_drive.py" in " ".join(argv):
+                frames = Path(argv[argv.index("--") + 3])
+                frames.mkdir(parents=True, exist_ok=True)
+                (frames / "f0000.png").write_bytes(TINY_PNG)
+            elif argv[0] == "ffmpeg":
+                dst = Path(argv[-1])
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.write_bytes(b"drive")
+        fake.after = {"render_drive.py": _produce_drive, "ffmpeg": _produce_drive}
+        code, out = self.run_cli(["go", str(self.f.project), "--force",
+                                  "--animations", "run", "--dirs", "s"],
+                                 fake=fake)
+        self.assertEqual(code, 1, out)
+        # drive ok, animate FAIL → per-pair line shows key and loop as "-"
+        self.assertRegex(out, r"run/s\] drive=ok  animate=FAIL")
+        # the summary table must render without exception
+        self.assertIn("summary", out)
+        self.assertIn("FAILED:", out)
+        # no traceback in output
+        self.assertNotIn("KeyError", out)
+        self.assertNotIn("Traceback", out)
+
+    def test_failed_drive_marks_FAIL_and_later_stages_dashed(self):
+        """When drive fails, animate/key/loop must show as '-' in both lines."""
+        fake = FakeRun(fails={"blender": 1})
+        code, out = self.run_cli(["go", str(self.f.project), "--stage", "drive",
+                                  "--force", "--animations", "run", "--dirs", "s"],
+                                 fake=fake)
+        self.assertEqual(code, 1, out)
+        # drive=FAIL; the per-pair line still renders (no KeyError)
+        self.assertRegex(out, r"run/s\] drive=FAIL")
+        self.assertIn("summary", out)
+        self.assertNotIn("KeyError", out)
 
 
 if __name__ == "__main__":

@@ -279,7 +279,8 @@ def copy_file(src, dst, log):
 def plan_cutout(still_path, out_dir):
     """Key the prepared SE still with `sprite-gen cutout --key measured` (FR 6).
     Planned here; wired into the still-preparation stage in slice 4."""
-    return sprite_gen_cmds("cutout", "--source", str(still_path), "--out-dir", str(out_dir),
+    out_path = Path(out_dir) / (Path(still_path).stem + ".keyed.png")
+    return sprite_gen_cmds("cutout", str(still_path), "--out", str(out_path),
                            "--key", "measured")
 
 
