@@ -61,8 +61,8 @@ Top level:
 - `output` — output directory, relative to the project file (default `out`).
 - `rig.neck` — the rig's neck bone name (default `DEF-neck`, the Quaternius mannequin).
 - `rig.head` — the rig's head bone name (default `DEF-head`).
-- `workflows.edit` — path to the FLUX.2-klein edit workflow JSON (required; relative to the project file).
-- `workflows.animate` — path to the Wan Animate 2 animate workflow JSON (required; relative to the project file).
+- `workflows.edit` — path to the FLUX.2-klein edit workflow JSON (relative to the project file; default: the packaged `src/sprite_pipeline/workflows/edit.json`).
+- `workflows.animate` — path to the Wan Animate 2 animate workflow JSON (relative to the project file; default: the packaged `src/sprite_pipeline/workflows/animate.json`).
 - `characters` — list of characters (below).
 - `animations` — list of animations (below).
 
@@ -92,7 +92,7 @@ Top level:
 - `state` — sprite-gen state for the loop stage: `idle`, `walk`, `run`, `jump` or `attack` (default `attack`).
 - `seam_max` — optional seam-pop cap for the loop stage.
 - `directions` — optional subset of `directions.generate`; defaults to all of them.
-- `workflow` — a per-animation override of `workflows.animate` is specified in the project-file format, but as of this increment the loader does not read it, so the key has no effect (filed as `sprite-pipeline-11`). The `workflows.*` paths also resolve only against the project directory; the shipped workflow JSON lives inside the package, so `workflows.edit` and `workflows.animate` must point at files you place next to your `project.yaml`.
+- `workflow` — optional per-animation override of `workflows.animate` (relative to the project file, like every other path; a missing file fails at the animate stage, naming the path).
 
 Workflow slots:
 

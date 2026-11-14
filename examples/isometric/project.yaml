@@ -13,7 +13,6 @@ export: godot
 seed: 7
 pose_strength: 0.75
 output: out
-workflows: {edit: workflows/edit.json, animate: workflows/animate.json}
 characters:
   - {name: courier, still: stills/courier.png,
      describe: "a courier in a cyberpunk city: an adult woman with a compact utility jacket and a messenger satchel",

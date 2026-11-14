@@ -12,6 +12,7 @@ every FR 4 case.
 import hashlib
 import json
 from dataclasses import dataclass, field
+from importlib import resources
 from pathlib import Path
 
 import yaml
@@ -69,6 +70,7 @@ class Animation:
     state: str = "attack"
     seam_max: float = 0.0
     directions: list = field(default_factory=list)
+    workflow: Path = None  # per-animation override of workflows.animate (FR 3)
 
     @property
     def head_lift(self):
@@ -192,10 +194,17 @@ def load_project(path, views_dir=VIEWS_DIR):
     output = Path(d.get("output") or "out")
     rig = d.get("rig") or {}
     rig = {"neck": rig.get("neck") or "DEF-neck", "head": rig.get("head") or "DEF-head"}
-    workflows = dict(d.get("workflows") or {})
+    # workflows (FR 1, amendment 1): each missing key defaults to the
+    # packaged workflow file; a given path resolves against the project file
+    packaged = resources.files("sprite_pipeline") / "workflows"
+    workflows = {}
     for k in ("edit", "animate"):
-        if not workflows.get(k):
-            raise ProjectError(f"{path.name}: workflows.{k}: missing")
+        wf = (d.get("workflows") or {}).get(k)
+        if not wf:
+            workflows[k] = packaged / f"{k}.json"
+        else:
+            wf_p = Path(wf)
+            workflows[k] = (wf_p if wf_p.is_absolute() else path.parent / wf_p)
 
     proj = Project(path=path, style=d.get("style") or "", view=view, generate=generate, mirror=mirror,
                    sprite=sprite, naming=naming, export=export, seed=seed,
@@ -273,13 +282,20 @@ def load_project(path, views_dir=VIEWS_DIR):
         state = a.get("state") or "attack"
         if state not in VALID_STATES:
             raise ProjectError(f"{path.name}: animations[{i}].state: {state!r} not one of {sorted(VALID_STATES)}")
+        wf = a.get("workflow")  # FR 3: per-animation override of workflows.animate
+        if wf is not None:
+            wf_p = Path(wf)
+            if not wf_p.is_absolute():
+                wf_p = path.parent / wf_p
+        else:
+            wf_p = None
         proj.animations.append(Animation(name=name, source=src_p, action=action, frames=frames,
                                          loop=bool(a.get("loop", False)), prompt=a.get("prompt") or "",
                                          start=start, clip_frames=clip,
                                          repeats=int(a.get("repeats") or 1), pre=int(a.get("pre", 1)),
                                          post=int(a.get("post") or 0), look_down=bool(a.get("look_down", False)),
                                          state=state, seam_max=float(a.get("seam_max") or 0),
-                                         directions=list(anim_dirs)))
+                                         directions=list(anim_dirs), workflow=wf_p))
 
     # FR 4: a naming pattern that does not produce unique names
     seen = {}

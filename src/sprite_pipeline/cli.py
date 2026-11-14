@@ -157,11 +157,9 @@ def run_stills(ctx, turn, char, reroll, force, log, out):
         if dst.is_file() and reroll.get(d) is None and not force:
             continue  # skip-if-exists (FR 10)
         prompt = stills.dir_prompt(turn, d, cs.pronoun)
-        wf = p.workflows["edit"]
-        if not Path(wf).is_absolute():
-            wf = str(p.path.parent / wf)
+        # absolute, resolved at load (FR 1, amendment 1)
         argv = [sys.executable, "-m", "sprite_pipeline.comfy", "edit",
-                "--workflow", str(wf), "--image", str(se),
+                "--workflow", str(p.workflows["edit"]), "--image", str(se),
                 "--prompt", prompt, "--seed", str(seed),
                 "--prefix", f"{char}/dir-{d}", "--copy-to", str(dst)]
         print(f"[{char}/{d}] direction edit: seed {seed}", file=out)
