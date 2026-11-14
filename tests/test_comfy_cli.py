@@ -302,13 +302,13 @@ class TestGoRealEditAtHTTPSeam(Env):
         self.assertEqual(len(self.server.prompts), 4)
 
         # each post holds the view's turn prompt for that direction in her
-        # pronoun; the image is the prepared SE still; the prefix is char/dir-<d>
+        # pronoun; the image is the fitted SE still; the prefix is char/dir-<d>
         for d in EDIT_DIRS:
             argv = next((c for c in edits
                          if c[c.index("--copy-to") + 1] == str(master / f"{d}.png")), d)
             self.assertEqual(argv[argv.index("--prompt") + 1],
                              expected_prompt(turn, d, "she"), d)
-            self.assertEqual(argv[argv.index("--image") + 1], str(master / "se.png"), d)
+            self.assertEqual(argv[argv.index("--image") + 1], str(master / "se.fit.png"), d)
             self.assertEqual(argv[argv.index("--prefix") + 1], f"courier/dir-{d}", d)
             g = next((g for g in self.server.prompts
                       if any((n.get("_meta") or {}).get("title") == "sp:prompt"
@@ -317,7 +317,7 @@ class TestGoRealEditAtHTTPSeam(Env):
             self.assertIsNotNone(g, d)
             ref = next(n for n in g.values()
                        if (n.get("_meta") or {}).get("title") == "sp:ref_image")
-            self.assertEqual(ref["inputs"]["image"], "se.png", d)
+            self.assertEqual(ref["inputs"]["image"], "se.fit.png", d)
             self.assertEqual(next(n for n in g.values()
                                   if (n.get("_meta") or {}).get("title") == "sp:seed")
                              ["inputs"]["noise_seed"], 7, d)  # examples project seed
