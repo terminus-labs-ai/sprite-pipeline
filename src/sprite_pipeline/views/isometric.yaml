@@ -1,9 +1,10 @@
 # Isometric view preset — the prompts that made the guard kit (from the new-kit
 # branch: newkit.TURN, dir_prompt, face_line, look_line).
-# background: "Background description: the background is one perfectly flat uniform chroma-key green, no floor, no shadow, no shapes."
-turn: the direction stills' turn prompt per direction ({pos} is the character's
+# turn: the direction stills' turn prompt per direction ({pos} is the character's
 # possessive). The SE still is the character as provided; its "turn" is the fixed
 # facing of the high isometric camera.
+# camera, face, background: the animate prompt's view lines ({subj} starts a
+# sentence, {sub} is mid-sentence).
 view: isometric
 camera: "Seen from a high fixed isometric camera looking down at {obj} at about 45 degrees, small in the frame with empty space around {obj}, full body always inside the frame."
 face: "{subj} keep{s} {pos} head up and {pos} face clearly visible, eyes looking ahead in the direction {sub} move{s}."
