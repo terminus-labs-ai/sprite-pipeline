@@ -154,8 +154,6 @@ animations:
             ctx = stages.StageCtx(proj, cfg)
             anim_run = proj.animation("run")
             anim_alt = proj.animation("alt")
-            # set the workflow attribute on the alt animation
-            anim_alt.workflow = "workflows/alt.json"
             # plan the animate stage for both animations
             cmds_run = ctx.plan_pair("courier", anim_run, "s", "animate")
             cmds_alt = ctx.plan_pair("courier", anim_alt, "s", "animate")

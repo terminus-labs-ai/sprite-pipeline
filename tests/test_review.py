@@ -23,6 +23,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from importlib import resources
 from pathlib import Path
 
 import yaml
@@ -286,7 +287,7 @@ class TestFirstRunStopsForReview(ReviewFixture):
         for e in self.fake.edit_calls():
             self.assertEqual(e[:3], [sys.executable, "-m", "sprite_pipeline.comfy"])
             self.assertEqual(e[e.index("--workflow") + 1],
-                             str(self.base / "workflows" / "edit.json"))
+                             str(resources.files("sprite_pipeline") / "workflows" / "edit.json"))
 
 
 # ----------------------------------------------------------------- AC4-r2: they
