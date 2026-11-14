@@ -278,3 +278,68 @@ class TestComfyUIHTTP(unittest.TestCase):
             self.assertIn("1 frames from ComfyUI", " ".join(log))
             # the clip was written (mocked)
             self.assertEqual(rc, 0)
+
+
+class TestAnimateParentDir(unittest.TestCase):
+    """AC6-r6: animate creates the parent folder of --copy-to before encoding.
+
+    On 4e3b883 this fails because `animate()` writes ffmpeg output directly to
+    `out_clip` without creating its parent directory — edit() at line 199 does
+    create it, but animate does not.
+    """
+
+    def test_r6_animate_creates_parent_dir(self):
+        """animate with --copy-to in a missing folder succeeds (parent dir created)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            # set up a fake ComfyUI server
+            server = HTTPServer(("127.0.0.1", 0), FakeComfyUIHandler)
+            server.prompt_id = None
+            server.last_prompt = None
+            server.last_upload = None
+            server.history_calls = 0
+            server.history_threshold = 1
+            port = server.server_address[1]
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(server.shutdown)
+
+            api = f"http://127.0.0.1:{port}"
+            # create a fake ref image
+            from PIL import Image
+            ref_path = tmp / "ref.png"
+            Image.new("RGB", (10, 10), (255, 0, 0)).save(ref_path)
+
+            # create a fake workflow
+            wf_path = tmp / "animate.json"
+            wf_path.write_text(json.dumps({
+                "7": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}, "_meta": {"title": "sp:prompt"}},
+                "10": {"class_type": "LoadImage", "inputs": {"image": ""}, "_meta": {"title": "sp:ref_image"}},
+                "12": {"class_type": "LoadVideo", "inputs": {"file": ""}, "_meta": {"title": "sp:drive_video"}},
+                "24": {"class_type": "SaveImage", "inputs": {"filename_prefix": ""}, "_meta": {"title": "sp:save"}},
+            }))
+
+            # create a fake output file (the server will report this path)
+            out_root = tmp / "output"
+            out_root.mkdir()
+            (out_root / "test_00001.png").write_bytes(b"fake frame")
+
+            cfg = {"comfy_url": api, "comfy_output": str(out_root), "comfy_input": str(tmp), "extra_path": ""}
+            values = {"prompt": "test", "save": "test", "drive_video": "drive.mp4"}
+            log = []
+            # out/<char>/clips/ does NOT exist — that's the bug on 4e3b883
+            out_clip = tmp / "out" / "se" / "clips" / "run-s.mp4"
+            self.assertFalse(out_clip.parent.exists())
+
+            # mock subprocess.run to avoid requiring ffmpeg
+            import subprocess
+            original_run = subprocess.run
+            mock_result = type('MockResult', (), {'returncode': 0, 'stdout': '', 'stderr': ''})
+            subprocess.run = lambda *args, **kwargs: mock_result
+            try:
+                rc = comfy.animate(cfg, str(wf_path), values, str(ref_path), "drive.mp4", out_clip, log)
+            finally:
+                subprocess.run = original_run
+            # parent dir should have been created and ffmpeg should succeed
+            self.assertTrue(out_clip.parent.exists(), f"parent dir {out_clip.parent} was not created")
+            self.assertEqual(rc, 0)

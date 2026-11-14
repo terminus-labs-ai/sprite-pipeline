@@ -150,6 +150,7 @@ def animate(cfg, workflow_path, values, ref_image, drive_video, out_clip, log):
         return 1
 
     # collect frames into the clip
+    Path(out_clip).parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as td:
         for i, f in enumerate(sorted(files)):
             shutil.copyfile(f, f"{td}/f{i:04d}.png")
