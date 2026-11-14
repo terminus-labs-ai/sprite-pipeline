@@ -23,12 +23,21 @@ REF_OFFSET = (224, 128)
 STYLE = "hand-painted cel shading, bold dark outlines, crisp edges"
 TAIL = " Full body, plain flat pure green background, no shadow."
 
-# pronoun -> (object, possessive)
+# pronoun -> (subject, object, possessive, verb suffix: "keep" + "s" for he/she)
 PRONOUNS = {
-    "he": ("him", "his"),
-    "she": ("her", "her"),
-    "they": ("them", "their"),
+    "he": ("he", "him", "his", "s"),
+    "she": ("she", "her", "her", "s"),
+    "they": ("they", "them", "their", ""),
 }
+
+
+def pronoun_forms(pronoun):
+    """The view-line placeholders for a pronoun: {subj} (sentence start),
+    {sub} (mid-sentence), {obj}, {pos} and {s}."""
+    if pronoun not in PRONOUNS:
+        raise ValueError(f"pronoun {pronoun!r} (he, she or they)")
+    subj, obj, pos, s = PRONOUNS[pronoun]
+    return {"subj": subj.capitalize(), "sub": subj, "obj": obj, "pos": pos, "s": s}
 
 
 def prepare(src, dst):
@@ -72,16 +81,32 @@ def dir_prompt(turn, d, pronoun):
     """FR 7: the direction edit's prompt — the view's turn prompt `turn[d]`
     for direction `d` worded in the character's pronoun. Raises ValueError
     for a pronoun or direction the preset does not know."""
-    if pronoun not in PRONOUNS:
-        raise ValueError(f"pronoun {pronoun!r} (he, she or they)")
+    forms = pronoun_forms(pronoun)
     if d not in turn:
         raise ValueError(f"view has no turn prompt for direction {d!r}")
-    obj, pos = PRONOUNS[pronoun]
-    turn_text = turn[d].format(obj=obj, pos=pos)
+    obj = forms["obj"]
+    turn_text = turn[d].format(**forms)
     return ("The exact same character with the exact same outfit, colors, proportions "
             f"and art style, seen from the exact same high isometric camera angle "
             f"looking down at {obj}, standing in the same relaxed pose, but now "
             + turn_text + "." + TAIL)
+
+
+def animate_prompt(view, style, char, anim, d):
+    """The animate step's --prompt: the character's look (describe, project
+    style, the view's camera line), the view's face line for a face direction
+    only, the view's background line, then the character's override `extra`
+    for the `<animation>-<dir>` pair."""
+    forms = pronoun_forms(char.pronoun)
+    parts = [char.describe.rstrip(". "), style.rstrip(". "), view["camera"].format(**forms)]
+    parts = [x if x.endswith(".") else x + "." for x in parts if x]
+    if d in char.face_dirs:
+        parts.append(view["face"].format(**forms))
+    parts.append(view["background"])
+    extra = (char.overrides.get(f"{anim.name}-{d}") or {}).get("extra")
+    if extra:
+        parts.append(extra)
+    return " ".join(parts)
 
 
 def review_sheet(images, dst, height=340):

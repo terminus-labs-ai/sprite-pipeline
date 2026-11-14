@@ -22,7 +22,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from sprite_pipeline import config, project
+from sprite_pipeline import config, project, stills
 
 PACKAGE = Path(__file__).resolve().parent
 
@@ -192,6 +192,9 @@ class StageCtx:
                     "--length", str(anim.clip_frames), "--seed", str(p.seed),
                     "--prefix", f"{char}/dir8-{anim.name}-{d}",
                     "--copy-to", str(self.clip(char, anim, d)),
+                    "--prompt", stills.animate_prompt(
+                        project.load_view(p.view), p.style,
+                        next(c for c in p.characters if c.name == char), anim, d),
                     "--pose-prompt", pose]
             if p.pose_strength != 1.0:
                 argv += ["--pose-strength", str(p.pose_strength)]
