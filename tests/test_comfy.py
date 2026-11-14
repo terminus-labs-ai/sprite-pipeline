@@ -249,6 +249,8 @@ class TestComfyUIHTTP(unittest.TestCase):
             wf_path = tmp / "animate.json"
             wf_path.write_text(json.dumps({
                 "7": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}, "_meta": {"title": "sp:prompt"}},
+                "10": {"class_type": "LoadImage", "inputs": {"image": ""}, "_meta": {"title": "sp:ref_image"}},
+                "12": {"class_type": "LoadVideo", "inputs": {"file": ""}, "_meta": {"title": "sp:drive_video"}},
                 "24": {"class_type": "SaveImage", "inputs": {"filename_prefix": ""}, "_meta": {"title": "sp:save"}},
             }))
 
@@ -258,7 +260,7 @@ class TestComfyUIHTTP(unittest.TestCase):
             (out_root / "test_00001.png").write_bytes(b"fake frame")
 
             cfg = {"comfy_url": api, "comfy_output": str(out_root), "comfy_input": str(tmp), "extra_path": ""}
-            values = {"prompt": "test", "save": "test"}
+            values = {"prompt": "test", "save": "test", "drive_video": "drive.mp4"}
             log = []
             out_clip = tmp / "clip.mp4"
             # mock subprocess.run to avoid requiring ffmpeg
