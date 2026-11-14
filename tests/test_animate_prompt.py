@@ -30,7 +30,7 @@ class TestAnimateArgv(unittest.TestCase):
             proj = project.load_project(stubbed_example(t)[0])
             ns = comfy.build_parser().parse_args(plan(proj)[3:])
             self.assertTrue(ns.prompt.strip())
-            self.assertEqual(ns.pose_prompt, "a person jogging in place, head up")
+            self.assertEqual(ns.pose_prompt, "a woman jogging in place, head up")  # courier: she (FR 2)
 
 
 class TestAnimatePromptComposition(unittest.TestCase):

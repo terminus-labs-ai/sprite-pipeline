@@ -179,7 +179,8 @@ class StageCtx:
                          "copy-drive"))
             return cmds
         if stage == "animate":
-            pose = anim.prompt.replace("{who}", "a person")
+            who = next(c for c in p.characters if c.name == char).who
+            pose = anim.prompt.replace("{who}", who)
             # per-animation workflow override (FR 3): anim.workflow replaces
             # p.workflows["animate"] for that animation; both are absolute,
             # resolved at load (FR 1)

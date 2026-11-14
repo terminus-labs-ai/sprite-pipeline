@@ -21,7 +21,9 @@ VIEWS_DIR = Path(__file__).resolve().parent / "views"
 
 KNOWN_DIRS = {"n", "ne", "e", "se", "s", "sw", "w", "nw"}
 VALID_STATES = {"idle", "walk", "run", "jump", "attack"}
-PRONOUNS = {"he", "she", "they"}
+# pronoun -> the pose subject when a character gives no `who` (FR 2)
+DEFAULT_WHO = {"he": "a man", "she": "a woman", "they": "a person"}
+PRONOUNS = set(DEFAULT_WHO)
 
 
 class ProjectError(ValueError):
@@ -231,7 +233,7 @@ def load_project(path, views_dir=VIEWS_DIR):
             if x not in generate:
                 raise ProjectError(f"{path.name}: characters[{i}].face_dirs: {x!r} not in directions.generate")
         proj.characters.append(Character(name=name, still=still_p, describe=c.get("describe") or "",
-                                         pronoun=c["pronoun"], who=c.get("who") or "",
+                                         pronoun=c["pronoun"], who=c.get("who") or DEFAULT_WHO[c["pronoun"]],
                                          face_dirs=list(face_dirs),
                                          overrides=dict(c.get("overrides") or {})))
 
