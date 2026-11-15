@@ -35,6 +35,7 @@ STAGES = PAIR_STAGES + KIT_STAGES
 
 # the drive scene's camera-height node; LSR-modeled from the view preset's 45°
 DRIVE_ELEV = 45
+DRIVE_ORTHO = 3.0  # render_drive.py camera ortho_scale at sprite.frame_size
 
 
 class StageCtx:
@@ -168,6 +169,10 @@ class StageCtx:
                      str(DRIVE_ELEV), str(anim.repeats), str(anim.pre), str(anim.post)]
             if anim.head_lift:
                 argv.append(str(anim.head_lift))
+            if anim.canvas and anim.canvas != p.sprite.frame_size:
+                # a larger canvas widens the camera by the same ratio, so the
+                # mannequin keeps its pixel size and gains room around it
+                argv += [f"res={anim.canvas}", f"ortho={DRIVE_ORTHO * anim.canvas / p.sprite.frame_size:.6f}"]
             cache = self.cache_mp4(char, anim, d)
             cmds = [(argv, "blender"),
                     (["ffmpeg", "-v", "error", "-y", "-framerate", str(p.sprite.fps),
@@ -187,11 +192,19 @@ class StageCtx:
             # p.workflows["animate"] for that animation; both are absolute,
             # resolved at load (FR 1)
             wf = anim.workflow or p.workflows["animate"]
+            canvas = anim.canvas or p.sprite.frame_size
+            ref, cmds = str(self.dir_still(char, d)), []
+            if canvas != p.sprite.frame_size:
+                # the reference still at the usual frame size, centred on the
+                # larger canvas: the character keeps its pixel size
+                padded = str(self.work_dir(char, anim, d) / f"ref-{canvas}.png")
+                cmds.append((("pad_still", ref, padded, str(p.sprite.frame_size), str(canvas)), "pad-still"))
+                ref = padded
             argv = [sys.executable, "-m", "sprite_pipeline.comfy", "animate",
                     "--workflow", str(wf),
-                    "--ref", str(self.dir_still(char, d)), "--video",
+                    "--ref", ref, "--video",
                     self.input_mp4(char, anim, d).name,
-                    "--w", str(p.sprite.frame_size), "--h", str(p.sprite.frame_size),
+                    "--w", str(canvas), "--h", str(canvas),
                     "--length", str(anim.clip_frames), "--seed", str(seed),
                     "--prefix", f"{char}/dir8-{anim.name}-{d}",
                     "--copy-to", str(self.clip(char, anim, d)),
@@ -200,7 +213,7 @@ class StageCtx:
                     "--pose-prompt", pose]
             if p.pose_strength != 1.0:
                 argv += ["--pose-strength", str(p.pose_strength)]
-            return [(argv, "animate")]
+            return cmds + [(argv, "animate")]
         if stage == "key":
             return sprite_gen_cmds(
                 "video-frames", "--clip", str(self.clip(char, anim, d)),
@@ -268,6 +281,21 @@ def sprite_gen_cmds(*args):
     """sprite-gen through the tool's own environment: argv[0] is the console
     script of the running interpreter's venv, where the pin installed it."""
     return [([str(sprite_gen_exe()), *args], "sprite-gen")]
+
+
+def pad_still(src, dst, frame, canvas, log):
+    """Scale a still to frame x frame (as the animate workflow would) and
+    centre it on a canvas x canvas image filled with its top-left colour."""
+    from PIL import Image
+
+    frame, canvas = int(frame), int(canvas)
+    im = Image.open(src).convert("RGB").resize((frame, frame), Image.LANCZOS)
+    out = Image.new("RGB", (canvas, canvas), im.getpixel((0, 0)))
+    off = (canvas - frame) // 2
+    out.paste(im, (off, off))
+    Path(dst).parent.mkdir(parents=True, exist_ok=True)
+    out.save(dst)
+    log.append(f"pad_still {src} -> {dst} ({frame} on {canvas})")
 
 
 def copy_file(src, dst, log):

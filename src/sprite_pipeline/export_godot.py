@@ -58,10 +58,17 @@ def export_char(ctx, char, anim_names, log, dry):
     sizes = {im.size for fs in frames.values() for im in (Image.open(f) for f in fs)}
     if not sizes:
         return False
-    if len(sizes) != 1:
-        log.append(f"export: mixed frame sizes {sorted(sizes)} — cannot pack one atlas")
-        return False
-    w, h = sizes.pop()
+    # an animation on a larger canvas has larger frames: every frame is
+    # centred in the largest cell, so the character's anchor stays put
+    w, h = max(x for x, _ in sizes), max(y for _, y in sizes)
+
+    def cell(f):
+        im = Image.open(f).convert("RGBA")
+        if im.size == (w, h):
+            return im
+        c = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        c.paste(im, ((w - im.width) // 2, (h - im.height) // 2))
+        return c
 
     rows = [(a, d) for a in anims for d in direction_order(p) if (a.name, d) in frames]
     ncol = max(len(frames[(a.name, d)]) for a, d in rows)
@@ -70,7 +77,7 @@ def export_char(ctx, char, anim_names, log, dry):
         region = {}
         for ri, (a, d) in enumerate(rows):
             for i, f in enumerate(frames[(a.name, d)]):
-                im = Image.open(f).convert("RGBA")
+                im = cell(f)
                 atlas.paste(im, (i * w, ri * h), im)
                 region[(a.name, d, i)] = (i * w, ri * h, w, h)
         atlas.save(out / "atlas.png")
@@ -86,7 +93,7 @@ def export_char(ctx, char, anim_names, log, dry):
                 first = frames.get((a.name, d))
                 if not first:
                     continue
-                im = Image.open(first[0]).convert("RGBA").resize((w * 4, h * 4), Image.NEAREST)
+                im = cell(first[0]).resize((w * 4, h * 4), Image.NEAREST)
                 sheet.paste(im, (ci * w * 4, ri * h * 4), im)
         sheet.save(out / "contact-sheet.png")
     log.append(f"export: {len(rows)} of {len(anims) * len(direction_order(p))} animations packed"

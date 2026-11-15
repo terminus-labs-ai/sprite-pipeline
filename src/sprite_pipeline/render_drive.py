@@ -2,6 +2,8 @@
 import bpy, math, sys
 from mathutils import Vector
 args = sys.argv[sys.argv.index("--") + 1:]
+opts = dict(x.split("=", 1) for x in args if "=" in x)  # res=<px> ortho=<scale> for a larger canvas
+args = [x for x in args if "=" not in x]
 glb, action, out, facing, elev, repeats, pre, post = args[:8]
 head_pitch = float(args[8]) if len(args) > 8 else 0.0
 facing, elev, repeats, pre, post = float(facing), float(elev), int(repeats), int(pre), int(post)
@@ -36,7 +38,7 @@ sc = bpy.context.scene
 # timeline: hold first pose `pre` frames, play `repeats` times, hold last pose `post` frames
 frames = [a0] * pre + [a0 + (i % n) for i in range(n * repeats)] + [a1] * post
 if repeats > 1: frames = [a0] * pre + [a0 + (i % n) for i in range(n * repeats)] + [a0] * post
-cam_d = bpy.data.cameras.new("cam"); cam_d.type = "ORTHO"; cam_d.ortho_scale = 3.0
+cam_d = bpy.data.cameras.new("cam"); cam_d.type = "ORTHO"; cam_d.ortho_scale = float(opts.get("ortho", 3.0))
 cam = bpy.data.objects.new("cam", cam_d); sc.collection.objects.link(cam); sc.camera = cam
 target = Vector((0, 0, 0.92)); dist = 10
 cam.location = target + Vector((0, -dist * math.cos(math.radians(elev)), dist * math.sin(math.radians(elev))))
@@ -46,7 +48,7 @@ sh = sc.display.shading; sh.light = "STUDIO"; sh.color_type = "SINGLE"; sh.singl
 sh.show_cavity = True; sh.show_shadows = False
 sc.world = bpy.data.worlds.new("w"); sc.world.color = (0.35, 0.35, 0.37)
 sh.background_type = "WORLD" if hasattr(sh, "background_type") else sh.background_type
-import os; sc.render.resolution_x, sc.render.resolution_y = int(os.environ.get("RW", 576)), int(os.environ.get("RH", 704))
+import os; sc.render.resolution_x, sc.render.resolution_y = int(opts.get("res", os.environ.get("RW", 576))), int(opts.get("res", os.environ.get("RH", 704)))
 sc.render.film_transparent = False
 sc.render.image_settings.file_format = "PNG"
 for i, f in enumerate(frames):

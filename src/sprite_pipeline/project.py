@@ -77,6 +77,7 @@ class Animation:
     seam_max: float = 0.0
     directions: list = field(default_factory=list)
     workflow: Path = None  # per-animation override of workflows.animate (FR 3)
+    canvas: int = 0       # square render size in px; 0 until load sets sprite.frame_size
 
     @property
     def head_lift(self):
@@ -122,7 +123,8 @@ class Project:
             {"glb": hashlib.sha256(glb_bytes).hexdigest(), "action": anim.action,
              "repeats": anim.repeats, "pre": anim.pre, "post": anim.post,
              "head_lift": anim.head_lift, "rig": {"neck": self.rig["neck"], "head": self.rig["head"]},
-             "elev": 45, "frame_size": self.sprite.frame_size},
+             "elev": 45, "frame_size": self.sprite.frame_size,
+             **({"canvas": anim.canvas} if anim.canvas and anim.canvas != self.sprite.frame_size else {})},
             sort_keys=True)
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
@@ -316,6 +318,12 @@ def load_project(path, views_dir=VIEWS_DIR):
         for x in anim_dirs:
             if x not in generate:
                 raise ProjectError(f"{path.name}: animations[{i}].directions: {x!r} not in directions.generate")
+        canvas = int(a.get("canvas") or sprite.frame_size)
+        if canvas < sprite.frame_size:
+            raise ProjectError(f"{path.name}: animations[{i}].canvas: {canvas} is smaller than sprite.frame_size "
+                               f"({sprite.frame_size})")
+        if canvas % 16:
+            raise ProjectError(f"{path.name}: animations[{i}].canvas: {canvas} is not a multiple of 16")
         state = a.get("state") or "attack"
         if state not in VALID_STATES:
             raise ProjectError(f"{path.name}: animations[{i}].state: {state!r} not one of {sorted(VALID_STATES)}")
@@ -332,7 +340,7 @@ def load_project(path, views_dir=VIEWS_DIR):
                                          repeats=int(a.get("repeats") or 1), pre=int(a.get("pre", 1)),
                                          post=int(a.get("post") or 0), look_down=bool(a.get("look_down", False)),
                                          state=state, seam_max=float(a.get("seam_max") or 0),
-                                         directions=list(anim_dirs), workflow=wf_p))
+                                         directions=list(anim_dirs), workflow=wf_p, canvas=canvas))
 
     # FR 4: a naming pattern that does not produce unique names
     seen = {}

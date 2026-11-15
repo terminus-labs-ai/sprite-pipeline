@@ -74,6 +74,7 @@ Top level:
 - `pronoun` — `he`, `she` or `they` (fills the view's face line and turn prompts).
 - `who` — optional pose subject for `{who}` in animation prompts; defaults from the pronoun (`a man`, `a woman`, `a person`).
 - `face_dirs` — optional list of directions that face the camera. Omit it to get the view's camera-facing directions (declared as `face_dirs` in `views/<view>.yaml`) that are in `directions.generate`; an explicit `face_dirs: []` means none (no face line).
+- Animation `canvas` — optional square render size in px (a multiple of 16, at least `sprite.frame_size`). A pose that spreads out, such as a fall, gets a larger canvas at the same pixel scale: the drive camera widens by the same ratio and the reference still is centred on the larger canvas. Export centres smaller frames in the largest cell.
 - `describe` may be one string for every direction or a map with one entry per generated direction (`{s: ..., se: ..., e: ..., ne: ..., n: ...}`), so each view can say what shows from that side (no face details on back views, for example). Mirrored directions reuse their source's entry. Every direction also gets the view's `facing` line from `views/<view>.yaml`, which keeps body, head and gaze pointing the same way.
 - `overrides` — optional map `<animation>-<dir>` → `{seed: N, extra: "<prompt line>"}` for rerolls of a specific pair.
 
