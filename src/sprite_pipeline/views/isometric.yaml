@@ -3,6 +3,8 @@
 # turn: the direction stills' turn prompt per direction ({pos} is the character's
 # possessive). The SE still is the character as provided; its "turn" is the fixed
 # facing of the high isometric camera.
+# facing: the animate prompt's per-direction line, always added: body, head and
+# gaze all point the same way, and whether the face can be seen.
 # camera, face, background: the animate prompt's view lines ({subj} starts a
 # sentence, {sub} is mid-sentence).
 # face_dirs: the view's full set of camera-facing directions (FR 2). A
@@ -20,4 +22,14 @@ turn:
   sw: "turned to face the lower left of the image, toward the camera, so we see {pos} front from above"
   w: "turned to face directly toward the left side of the image, seen in side profile from above"
   ne: "turned away from the camera, facing toward the upper right of the image, so we see {pos} back and the back of {pos} head from above at three-quarters"
+  nw: "turned away from the camera, facing toward the upper left of the image, so we see {pos} back and the back of {pos} head from above at three-quarters"
   n: "turned fully away from the camera, facing straight up toward the top of the image, so we see only {pos} back and the back of {pos} head from above"
+facing:
+  s: "{pos_cap} body, head and gaze all point straight down toward the bottom of the image, toward the camera, so we see {pos} front from above the whole time."
+  se: "{pos_cap} body, head and gaze all point toward the lower right of the image, toward the camera, so we see {pos} front from above the whole time."
+  sw: "{pos_cap} body, head and gaze all point toward the lower left of the image, toward the camera, so we see {pos} front from above the whole time."
+  e: "{pos_cap} body, head and gaze all point directly toward the right side of the image, seen in side profile from above; {sub} never turn{s} {pos} head toward the camera."
+  w: "{pos_cap} body, head and gaze all point directly toward the left side of the image, seen in side profile from above; {sub} never turn{s} {pos} head toward the camera."
+  ne: "{pos_cap} body, head and gaze all point toward the upper right of the image, away from the camera, so we see {pos} back and the back of {pos} head from above at three-quarters; {pos} face is never visible."
+  nw: "{pos_cap} body, head and gaze all point toward the upper left of the image, away from the camera, so we see {pos} back and the back of {pos} head from above at three-quarters; {pos} face is never visible."
+  n: "{pos_cap} body, head and gaze all point straight up toward the top of the image, away from the camera, so we see only {pos} back and the back of {pos} head from above; {pos} face is never visible."

@@ -33,11 +33,11 @@ PRONOUNS = {
 
 def pronoun_forms(pronoun):
     """The view-line placeholders for a pronoun: {subj} (sentence start),
-    {sub} (mid-sentence), {obj}, {pos} and {s}."""
+    {sub} (mid-sentence), {obj}, {pos}, {pos_cap} (sentence start) and {s}."""
     if pronoun not in PRONOUNS:
         raise ValueError(f"pronoun {pronoun!r} (he, she or they)")
     subj, obj, pos, s = PRONOUNS[pronoun]
-    return {"subj": subj.capitalize(), "sub": subj, "obj": obj, "pos": pos, "s": s}
+    return {"subj": subj.capitalize(), "sub": subj, "obj": obj, "pos": pos, "pos_cap": pos.capitalize(), "s": s}
 
 
 def fit(src, dst=None):
@@ -96,13 +96,17 @@ def dir_prompt(turn, d, pronoun):
 
 def animate_prompt(view, style, char, anim, d):
     """The animate step's --prompt: the character's look (describe, project
-    style, the view's camera line), the view's face line for a face direction
-    only, the view's background line, then the character's override `extra`
-    for the `<animation>-<dir>` pair."""
+    style, the view's camera line), the view's facing line for the direction,
+    the view's face line for a face direction only, the view's background
+    line, then the character's override `extra` for the `<animation>-<dir>`
+    pair. Outside face_dirs the look is `describe_back` when given."""
     forms = pronoun_forms(char.pronoun)
-    parts = [char.describe.rstrip(". "), style.rstrip(". "), view["camera"].format(**forms)]
+    face = d in char.face_dirs
+    look = char.describe if face or not char.describe_back else char.describe_back
+    parts = [look.rstrip(". "), style.rstrip(". "), view["camera"].format(**forms),
+             view["facing"][d].format(**forms)]
     parts = [x if x.endswith(".") else x + "." for x in parts if x]
-    if d in char.face_dirs:
+    if face:
         parts.append(view["face"].format(**forms))
     parts.append(view["background"])
     extra = (char.overrides.get(f"{anim.name}-{d}") or {}).get("extra")

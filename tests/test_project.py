@@ -135,6 +135,25 @@ class TestValidation(unittest.TestCase):
             self.assertIn("view notest has no turn prompt for direction 's'", msg)
             self.assertIn("views/notest.yaml", msg)  # names the direction and the view
 
+    def test_r6_view_without_facing_line_for_generated_direction(self):
+        with tempfile.TemporaryDirectory() as t:
+            (Path(t) / "notest.yaml").write_text(
+                "turn:\n  s: a\n  se: b\n  e: c\n  ne: d\n  n: e\nfacing:\n  se: kept facing the lower right\n")
+            p = write_project(t, base_project().replace("view: isometric", "view: notest")
+                              .replace("  mirror: {sw: se, w: e, nw: ne}\n", ""))
+            with self.assertRaises(project.ProjectError) as cm:
+                project.load_project(p, views_dir=Path(t))
+            self.assertIn("view notest has no facing line for direction 's'", str(cm.exception))
+
+    def test_describe_back_loaded_and_defaults_empty(self):
+        with tempfile.TemporaryDirectory() as t:
+            text = base_project(characters="- {name: courier, still: stills/courier.png, describe: \"a courier\", "
+                                           "describe_back: \"a courier from behind\", pronoun: she}")
+            self.assertEqual(project.load_project(write_project(t, text)).characters[0].describe_back,
+                             "a courier from behind")
+        with tempfile.TemporaryDirectory() as t:
+            self.assertEqual(project.load_project(write_project(t, base_project())).characters[0].describe_back, "")
+
     def test_r6_unknown_view_has_no_preset(self):
         with tempfile.TemporaryDirectory() as t:
             p = write_project(t, base_project().replace("view: isometric", "view: badview"))

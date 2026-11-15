@@ -50,6 +50,7 @@ class Character:
     still: Path
     describe: str
     pronoun: str
+    describe_back: str = ""
     who: str = ""
     face_dirs: list = field(default_factory=list)
     overrides: dict = field(default_factory=dict)
@@ -186,6 +187,13 @@ def load_project(path, views_dir=VIEWS_DIR):
             raise ProjectError(f"{path.name}: directions.generate: view {view} has no turn prompt for direction {x!r} "
                                f"(missing from views/{view}.yaml)")
 
+    # a view with no facing line for a generated direction
+    facing = preset.get("facing") or {}
+    for x in generate:
+        if x not in facing:
+            raise ProjectError(f"{path.name}: directions.generate: view {view} has no facing line for direction {x!r} "
+                               f"(missing from views/{view}.yaml)")
+
     sprite = Sprite.from_dict(d.get("sprite") or {})
     naming = d.get("naming") or "{animation}_{dir}"
     export = d.get("export") or "godot"
@@ -245,6 +253,7 @@ def load_project(path, views_dir=VIEWS_DIR):
             if x not in generate:
                 raise ProjectError(f"{path.name}: characters[{i}].face_dirs: {x!r} not in directions.generate")
         proj.characters.append(Character(name=name, still=still_p, describe=c.get("describe") or "",
+                                         describe_back=c.get("describe_back") or "",
                                          pronoun=c["pronoun"], who=c.get("who") or DEFAULT_WHO[c["pronoun"]],
                                          face_dirs=list(face_dirs),
                                          overrides=dict(c.get("overrides") or {})))

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from test_workflow_paths import cfg, stubbed_example
 
-from sprite_pipeline import comfy, project, stages
+from sprite_pipeline import comfy, project, stages, stills
 
 
 def plan(proj, d="s", anim="run"):
@@ -66,6 +66,38 @@ class TestAnimatePromptComposition(unittest.TestCase):
         self.assertTrue(prompt_of(plan(self.proj, "s")).endswith("Holding a lantern."))
         self.assertNotIn("lantern", prompt_of(plan(self.proj, "n")))
         self.assertNotIn("lantern", prompt_of(plan(self.proj, "s", "punch")))
+
+
+class TestFacingLines(unittest.TestCase):
+    def setUp(self):
+        self._t = tempfile.TemporaryDirectory()
+        self.addCleanup(self._t.cleanup)
+        self.proj = project.load_project(stubbed_example(self._t.name)[0])
+        self.char = self.proj.characters[0]
+        self.char.face_dirs = ["s"]
+        self.view = project.load_view(self.proj.view)
+
+    def test_isometric_preset_has_a_facing_line_for_all_eight_directions(self):
+        self.assertEqual(set(self.view["facing"]), project.KNOWN_DIRS)
+
+    def test_each_generated_direction_gets_its_own_facing_line(self):
+        for d in self.proj.generate:
+            line = self.view["facing"][d].format(**stills.pronoun_forms("she"))
+            self.assertIn(line, prompt_of(plan(self.proj, d)), d)
+
+    def test_back_facing_line_hides_the_face(self):
+        self.assertIn("face is never visible", prompt_of(plan(self.proj, "n")))
+
+    def test_describe_back_replaces_describe_outside_face_dirs(self):
+        self.char.describe_back = "A woman with short dark hair, seen from behind."
+        self.assertIn(self.char.describe_back, prompt_of(plan(self.proj, "n")))
+        self.assertNotIn(self.char.describe, prompt_of(plan(self.proj, "n")))
+        self.assertIn(self.char.describe, prompt_of(plan(self.proj, "s")))
+        self.assertNotIn(self.char.describe_back, prompt_of(plan(self.proj, "s")))
+
+    def test_describe_back_falls_back_to_describe(self):
+        self.char.describe_back = ""
+        self.assertIn(self.char.describe, prompt_of(plan(self.proj, "n")))
 
 
 if __name__ == "__main__":
