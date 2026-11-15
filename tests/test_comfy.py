@@ -343,3 +343,21 @@ class TestAnimateParentDir(unittest.TestCase):
             # parent dir should have been created and ffmpeg should succeed
             self.assertTrue(out_clip.parent.exists(), f"parent dir {out_clip.parent} was not created")
             self.assertEqual(rc, 0)
+
+
+class TestAnimateSize(unittest.TestCase):
+    """--w/--h set the generation size: both scale nodes and the video node."""
+
+    def test_packaged_animate_workflow_takes_width_and_height_everywhere(self):
+        wf = Path(comfy.__file__).parent / "workflows" / "animate.json"
+        graph = comfy.fill_slots(comfy.load_workflow(wf), {"width": 960, "height": 960}, wf.name)
+        sized = {k: (n["inputs"]["width"], n["inputs"]["height"]) for k, n in graph.items()
+                 if n["class_type"] in ("ImageScale", "WanAnimate2ToVideo")}
+        self.assertEqual(len(sized), 3, sized)
+        self.assertEqual(set(sized.values()), {(960, 960)}, sized)
+
+    def test_a_slot_title_on_two_nodes_fills_both(self):
+        graph = {"1": {"class_type": "X", "_meta": {"title": "sp:width"}, "inputs": {"width": 1}},
+                 "2": {"class_type": "Y", "_meta": {"title": "sp:seed,sp:width"}, "inputs": {"width": 1, "noise_seed": 0}}}
+        comfy.fill_slots(graph, {"width": 5}, "t.json")
+        self.assertEqual([graph[k]["inputs"]["width"] for k in "12"], [5, 5])

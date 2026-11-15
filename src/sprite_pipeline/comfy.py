@@ -60,7 +60,8 @@ def fill_slots(graph, values, workflow_name):
     Returns the modified graph.
 
     A node may carry multiple `sp:` titles (comma-separated in `_meta.title`),
-    in which case each slot is filled on that node.
+    in which case each slot is filled on that node; a slot titled on several
+    nodes is filled on all of them.
     """
     slot_to_node = {}
     for node_id, node in graph.items():
@@ -73,18 +74,19 @@ def fill_slots(graph, values, workflow_name):
                 continue
             slot = part[3:]
             if slot in SLOT_INPUTS:
-                slot_to_node[slot] = node_id
+                slot_to_node.setdefault(slot, []).append(node_id)
 
     for slot, value in values.items():
         title = f"sp:{slot}"
         if slot not in slot_to_node:
             raise WorkflowError(f"{workflow_name}: missing node titled {title}")
-        node = graph[slot_to_node[slot]]
         input_name = SLOT_INPUTS[slot]
-        if input_name not in node["inputs"]:
-            raise WorkflowError(f"{workflow_name}: node {slot_to_node[slot]} ({title}) "
-                                f"has no input '{input_name}'")
-        node["inputs"][input_name] = value
+        for node_id in slot_to_node[slot]:
+            node = graph[node_id]
+            if input_name not in node["inputs"]:
+                raise WorkflowError(f"{workflow_name}: node {node_id} ({title}) "
+                                    f"has no input '{input_name}'")
+            node["inputs"][input_name] = value
 
     return graph
 
