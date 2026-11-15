@@ -99,10 +99,10 @@ def animate_prompt(view, style, char, anim, d):
     style, the view's camera line), the view's facing line for the direction,
     the view's face line for a face direction only, the view's background
     line, then the character's override `extra` for the `<animation>-<dir>`
-    pair. Outside face_dirs the look is `describe_back` when given."""
+    pair. The look is the character's describe text for direction `d`."""
     forms = pronoun_forms(char.pronoun)
     face = d in char.face_dirs
-    look = char.describe if face or not char.describe_back else char.describe_back
+    look = char.look(d)
     parts = [look.rstrip(". "), style.rstrip(". "), view["camera"].format(**forms),
              view["facing"][d].format(**forms)]
     parts = [x if x.endswith(".") else x + "." for x in parts if x]

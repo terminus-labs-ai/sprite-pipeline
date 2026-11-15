@@ -74,7 +74,7 @@ Top level:
 - `pronoun` — `he`, `she` or `they` (fills the view's face line and turn prompts).
 - `who` — optional pose subject for `{who}` in animation prompts; defaults from the pronoun (`a man`, `a woman`, `a person`).
 - `face_dirs` — optional list of directions that face the camera. Omit it to get the view's camera-facing directions (declared as `face_dirs` in `views/<view>.yaml`) that are in `directions.generate`; an explicit `face_dirs: []` means none (no face line).
-- `describe_back` — optional look text for directions outside `face_dirs` (the back and three-quarter-back views). Leave out face details such as eyes or freckles. Omit it to use `describe` everywhere. Every direction also gets the view's `facing` line from `views/<view>.yaml`, which keeps body, head and gaze pointing the same way.
+- `describe` may be one string for every direction or a map with one entry per generated direction (`{s: ..., se: ..., e: ..., ne: ..., n: ...}`), so each view can say what shows from that side (no face details on back views, for example). Mirrored directions reuse their source's entry. Every direction also gets the view's `facing` line from `views/<view>.yaml`, which keeps body, head and gaze pointing the same way.
 - `overrides` — optional map `<animation>-<dir>` → `{seed: N, extra: "<prompt line>"}` for rerolls of a specific pair.
 
 `animations[]` (FR 3):

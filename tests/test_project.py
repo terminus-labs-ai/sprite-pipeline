@@ -145,14 +145,39 @@ class TestValidation(unittest.TestCase):
                 project.load_project(p, views_dir=Path(t))
             self.assertIn("view notest has no facing line for direction 's'", str(cm.exception))
 
-    def test_describe_back_loaded_and_defaults_empty(self):
+    def _char(self, describe):
+        return base_project(characters="- {name: courier, still: stills/courier.png, describe: " + describe + ", pronoun: she}")
+
+    def test_describe_string_applies_to_every_direction(self):
         with tempfile.TemporaryDirectory() as t:
-            text = base_project(characters="- {name: courier, still: stills/courier.png, describe: \"a courier\", "
-                                           "describe_back: \"a courier from behind\", pronoun: she}")
-            self.assertEqual(project.load_project(write_project(t, text)).characters[0].describe_back,
-                             "a courier from behind")
+            c = project.load_project(write_project(t, base_project())).characters[0]
+            self.assertEqual({d: c.look(d) for d in ("s", "n")}, {"s": "a courier", "n": "a courier"})
+
+    def test_describe_map_per_direction(self):
         with tempfile.TemporaryDirectory() as t:
-            self.assertEqual(project.load_project(write_project(t, base_project())).characters[0].describe_back, "")
+            c = project.load_project(write_project(t, self._char("{s: front, se: fs, e: side, ne: tq, n: back}"))).characters[0]
+            self.assertEqual(c.look("n"), "back")
+            self.assertEqual(c.look("e"), "side")
+
+    def test_describe_map_missing_generated_direction(self):
+        with tempfile.TemporaryDirectory() as t:
+            with self.assertRaises(project.ProjectError) as cm:
+                project.load_project(write_project(t, self._char("{s: front, se: fs, e: side, ne: tq}")))
+            self.assertIn("characters[0].describe: no entry for direction 'n'", str(cm.exception))
+
+    def test_describe_map_direction_not_generated(self):
+        with tempfile.TemporaryDirectory() as t:
+            with self.assertRaises(project.ProjectError) as cm:
+                project.load_project(write_project(t, self._char("{s: a, se: b, e: c, ne: d, n: e, sw: f}")))
+            self.assertIn("characters[0].describe.sw: not in directions.generate", str(cm.exception))
+
+    def test_describe_back_is_rejected(self):
+        with tempfile.TemporaryDirectory() as t:
+            text = base_project(characters="- {name: courier, still: stills/courier.png, describe: a, describe_back: b, pronoun: she}")
+            with self.assertRaises(project.ProjectError) as cm:
+                project.load_project(write_project(t, text))
+            self.assertIn("describe_back", str(cm.exception))
+            self.assertIn("describe map", str(cm.exception))
 
     def test_r6_unknown_view_has_no_preset(self):
         with tempfile.TemporaryDirectory() as t:

@@ -48,12 +48,15 @@ class Sprite:
 class Character:
     name: str
     still: Path
-    describe: str
+    describe: object  # one string for every direction, or a map direction -> text
     pronoun: str
-    describe_back: str = ""
     who: str = ""
     face_dirs: list = field(default_factory=list)
     overrides: dict = field(default_factory=dict)
+
+    def look(self, d):
+        """The character's description for direction `d`."""
+        return self.describe[d] if isinstance(self.describe, dict) else self.describe
 
 
 @dataclass
@@ -252,8 +255,19 @@ def load_project(path, views_dir=VIEWS_DIR):
         for x in face_dirs:
             if x not in generate:
                 raise ProjectError(f"{path.name}: characters[{i}].face_dirs: {x!r} not in directions.generate")
-        proj.characters.append(Character(name=name, still=still_p, describe=c.get("describe") or "",
-                                         describe_back=c.get("describe_back") or "",
+        if "describe_back" in c:
+            raise ProjectError(f"{path.name}: characters[{i}].describe_back: removed; "
+                               f"give a describe map with one entry per direction instead")
+        describe = c.get("describe") or ""
+        if isinstance(describe, dict):
+            for x in describe:
+                if x not in generate:
+                    raise ProjectError(f"{path.name}: characters[{i}].describe.{x}: not in directions.generate")
+            for x in generate:
+                if not describe.get(x):
+                    raise ProjectError(f"{path.name}: characters[{i}].describe: no entry for direction {x!r}")
+            describe = {x: str(v) for x, v in describe.items()}
+        proj.characters.append(Character(name=name, still=still_p, describe=describe,
                                          pronoun=c["pronoun"], who=c.get("who") or DEFAULT_WHO[c["pronoun"]],
                                          face_dirs=list(face_dirs),
                                          overrides=dict(c.get("overrides") or {})))

@@ -88,16 +88,14 @@ class TestFacingLines(unittest.TestCase):
     def test_back_facing_line_hides_the_face(self):
         self.assertIn("face is never visible", prompt_of(plan(self.proj, "n")))
 
-    def test_describe_back_replaces_describe_outside_face_dirs(self):
-        self.char.describe_back = "A woman with short dark hair, seen from behind."
-        self.assertIn(self.char.describe_back, prompt_of(plan(self.proj, "n")))
-        self.assertNotIn(self.char.describe, prompt_of(plan(self.proj, "n")))
-        self.assertIn(self.char.describe, prompt_of(plan(self.proj, "s")))
-        self.assertNotIn(self.char.describe_back, prompt_of(plan(self.proj, "s")))
-
-    def test_describe_back_falls_back_to_describe(self):
-        self.char.describe_back = ""
-        self.assertIn(self.char.describe, prompt_of(plan(self.proj, "n")))
+    def test_describe_map_gives_each_direction_its_own_look(self):
+        self.char.describe = {d: f"LOOK-{d}-END" for d in self.proj.generate}
+        for d in self.proj.generate:
+            p = prompt_of(plan(self.proj, d))
+            self.assertTrue(p.startswith(f"LOOK-{d}-END."), d)
+            for other in self.proj.generate:
+                if other != d:
+                    self.assertNotIn(f"LOOK-{other}-END", p)
 
 
 if __name__ == "__main__":
