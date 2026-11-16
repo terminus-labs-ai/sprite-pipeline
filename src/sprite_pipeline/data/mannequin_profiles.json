@@ -1,0 +1,11 @@
+{
+  "_comment": "Mannequin body-geometry profiles keyed by sha256 of the source GLB bytes (spec FR 14). Rendered A_TPose, facing s, elevation 45, at res 704 with the drive camera (ortho 3.0); body_h and floor_y are pixel values at that resolution and the body keeps its pixel size at larger canvases (drive rule), with the floor line shifted by (canvas-704)//2.",
+  "profiles": {
+    "b97d76c65bd2805e1b04d049fd42cbb9268018f24678858fdafa6891b3f2ddf4": {
+      "glb_name": "ual-female.glb", "resolution": 704, "body_h": 324, "floor_y": 525
+    },
+    "1b7bf67866360665426bb99e4c71bd619f19b408453c24e30f0c3071601eee5c": {
+      "glb_name": "ual.glb", "resolution": 704, "body_h": 345, "floor_y": 538
+    }
+  }
+}
