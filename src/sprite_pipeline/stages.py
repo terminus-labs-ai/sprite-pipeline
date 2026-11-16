@@ -115,6 +115,51 @@ class StageCtx:
             h.update(b"\0")
         return h.hexdigest()
 
+    # -- source-still fingerprint (FR 10, amendment 2): source.sha256 holds
+    # the sha256 of the character's source still bytes; a changed source makes
+    # the character's whole output tree stale
+    def source_hash_file(self, char):
+        return self.master(char) / "source.sha256"
+
+    def source_hash(self, cs):
+        """sha256 of the character's source still bytes (lowercase hex)."""
+        return hashlib.sha256(cs.still.read_bytes()).hexdigest()
+
+    def write_source_hash(self, char, cs):
+        """Write the source-still fingerprint at out/<char>/master/source.sha256."""
+        dst = self.source_hash_file(char)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_text(self.source_hash(cs) + "\n")
+
+    def recorded_source_hash(self, char):
+        """The fingerprint on record, or None when there is none: no file, an
+        unreadable file or a blank one is unknown, never stale."""
+        try:
+            recorded = self.source_hash_file(char).read_text(errors="replace").strip()
+        except OSError:
+            return None
+        return recorded or None
+
+    def source_stale(self, char, cs):
+        """The character is stale when a fingerprint is on record and it
+        differs from the current source still bytes (a changed file or a
+        repointed path). Unknown (no usable hash on record) is never stale."""
+        recorded = self.recorded_source_hash(char)
+        if recorded is None:
+            return False
+        return recorded != self.source_hash(cs)
+
+    def drop_char_outputs(self, char):
+        """Stale-source rebuild: delete the character's whole output directory.
+        The resolved path must be inside the project output directory."""
+        out_root = self.project.output_root().resolve()
+        char_dir = (self.project.output_root() / char).resolve()
+        if char_dir.parent != out_root:
+            raise ValueError(
+                f"refusing to delete {char_dir}: not inside the project output "
+                f"directory {out_root}")
+        shutil.rmtree(char_dir)
+
     def write_refs_approved(self, char):
         """`approve` writes refs.approved: the hash of the direction stills."""
         dst = self.refs_approved(char)

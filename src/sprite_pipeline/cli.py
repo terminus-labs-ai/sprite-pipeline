@@ -177,6 +177,9 @@ def run_stills(ctx, turn, char, reroll, force, log, out):
             if forced(ctx.master(char) / "se.keyed.png"):
                 cmds = stages.plan_cutout(se, ctx.master(char))
                 ok = run_cmds(ctx, cmds, log, out) and ok
+            # FR 10 amendment 2: fingerprint the source still whenever the
+            # stills are prepared (also refreshes a missing/legacy hash)
+            ctx.write_source_hash(char, cs)
         else:
             d = step["dir"]
             dst = ctx.dir_still(char, d)
@@ -303,6 +306,25 @@ def main(argv=None, out=None):
     log, status, failed, stopped = [], {}, [], []
 
     for char in chars:
+        cs = next(c for c in proj.characters if c.name == char)
+        # FR 10 amendment 2: a stale source still (changed bytes or repointed
+        # path) invalidates the character's whole output tree, including its
+        # approval and every derived clip, loop and export.
+        char_out = ctx.project.output_root() / char
+        if char_out.is_dir() and ctx.source_stale(char, cs):
+            print(f"[{char}] stale source still: {cs.still}", file=out)
+            if not dry:
+                ctx.drop_char_outputs(char)
+            else:
+                print(f"[{char}] stale: rebuild planned, no deletion (--dry-run)",
+                      file=out)
+        elif char_out.is_dir() and ctx.recorded_source_hash(char) is None:
+            # a legacy output directory carries no usable fingerprint (no file,
+            # unreadable, or blank): record the current source's hash and keep
+            # the outputs (unknown, not stale)
+            ctx.write_source_hash(char, cs)
+            print(f"[{char}] no source fingerprint: wrote {ctx.source_hash_file(char).name} "
+                  f"for {cs.still}", file=out)
         reroll = rerolls.get(char, {})
         # a reroll makes its direction's still again, so the review stop and
         # the still-prep skips treat the character as unapproved this run
