@@ -128,15 +128,14 @@ class ProjectFixture:
         self.project = self.base / "project.yaml"
 
     def approve(self, character="courier", dirs=GEN_DIRS):
-        """Approved via the interim marker: `approve --interim` records the
-        still names (slice 2's rule); the hash gate accepts it while every
-        named still exists. The hash rule itself is tested in test_review.py."""
+        """Approved via `approve`: refs.approved holds the hash of the stills
+        just written (the hash rule is also tested in test_review.py)."""
         master = self.base / "out" / character / "master"
         master.mkdir(parents=True, exist_ok=True)
         for d in dirs:
             (master / f"{d}.png").write_bytes(TINY_PNG)
-        code = cli.main(["approve", "--interim", str(self.project), character])
-        assert code == 0, f"approve --interim exited {code}"
+        code = cli.main(["approve", str(self.project), character])
+        assert code == 0, f"approve exited {code}"
 
 
 # ---------------------------------------------------------------- AC1-r1: dry run

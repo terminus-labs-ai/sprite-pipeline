@@ -102,12 +102,17 @@ def upload(api, path):
     return json.load(urllib.request.urlopen(req))["name"]
 
 
-def post(api, graph, out_root, poll_interval=2.0):
+def post(api, graph, out_root, poll_interval=2.0, timeout=None):
     """Post the graph to ComfyUI's /prompt endpoint and poll /history until
-    the result is ready. Returns the list of output files (under out_root)."""
+    the result is ready. Returns the list of output files (under out_root).
+
+    `timeout` bounds the wait in seconds; the default None keeps today's
+    behaviour and polls forever. Exceeding it is a SystemExit naming the
+    prompt id and the bound, never a silent hang."""
     body = json.dumps({"prompt": graph, "client_id": str(uuid.uuid4())}).encode()
     req = urllib.request.Request(f"{api}/prompt", body, {"Content-Type": "application/json"})
     pid = json.load(urllib.request.urlopen(req))["prompt_id"]
+    deadline = None if timeout is None else time.monotonic() + timeout
     while True:
         hist = json.load(urllib.request.urlopen(f"{api}/history/{pid}"))
         if pid in hist:
@@ -120,6 +125,8 @@ def post(api, graph, out_root, poll_interval=2.0):
                     for f in [x for x in out.get(key, []) if x.get("type", "output") == "output"]:
                         files.append(Path(out_root) / f.get("subfolder", "") / f["filename"])
             return files
+        if deadline is not None and time.monotonic() >= deadline:
+            raise SystemExit(f"comfy: prompt {pid} has no result after {timeout:g}s")
         time.sleep(poll_interval)
 
 

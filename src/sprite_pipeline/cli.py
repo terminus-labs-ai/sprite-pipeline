@@ -99,10 +99,6 @@ def resolve_run(project_path, args):
     return proj, config.load(), chars, [a.name for a in anims], dirs, rerolls
 
 
-def _print_cmd(prefix, argv, label, out):
-    print(f"{prefix} ({label})  " + " ".join(stages.quote(a) for a in argv), file=out)
-
-
 def _print_plan_line(char, stage, argv, out):
     """One planned command: the `stage=<stage>` field names the stage and the
     `(label)` field names the tool; the full argv follows after two spaces."""
@@ -116,29 +112,50 @@ def _print_plan_line(char, stage, argv, out):
           + " ".join(stages.quote(a) for a in argv), file=out)
 
 
+def still_plan(proj, char):
+    """The still work one character needs, in run order: the prepare step
+    first (the master `se` still and its keyed copy), then one direction edit
+    per generated direction other than se — the still's own direction keeps
+    the prepared image. The shared definition of that loop behind
+    `_print_still_plan` (the dry-run plan) and `run_stills` (the real run),
+    so the two can never disagree about which steps exist or their order."""
+    cs = next(c for c in proj.characters if c.name == char)
+    steps = [{"kind": "prepare", "char": char, "src": cs.still,
+              "dst": None, "turn": "", "dir": "se"}]
+    turn = project.load_view(proj.view)["turn"]
+    for d in proj.generate:
+        if d == "se":
+            continue
+        steps.append({"kind": "edit", "char": char, "src": None,
+                      "dst": None, "turn": turn[d], "dir": d})
+    return steps
+
+
 def _print_still_plan(proj, ctx, char, reroll, force, out):
     """FR 1 dry-run lines: the still preparation and one line per direction
     edit (skip marked; --reroll and --force plan the step again)."""
     cs = next(c for c in proj.characters if c.name == char)
-    se = ctx.dir_still(char, "se")
-    pre = "prepare" if (force or reroll.get("se") is not None or not se.is_file()) else "skip"
-    print(f"[{char}] still preparation: {pre} {cs.still} -> {se} "
-          f"(python; then sprite-gen cutout --key measured)", file=out)
-    for d in proj.generate:
-        if d == "se":
-            continue  # the still's own direction keeps the prepared image
-        turn = project.load_view(proj.view)["turn"][d]
-        edit = "edit" if (force or reroll.get(d) is not None
-                          or not ctx.dir_still(char, d).is_file()) else "skip"
-        print(f"[{char}/{d}] direction edit ({edit}): {proj.workflows['edit']} on the "
-              f"fitted still (se.fit.png) ({turn[:48]}...)", file=out)
+    for step in still_plan(proj, char):
+        if step["kind"] == "prepare":
+            se = ctx.dir_still(char, "se")
+            pre = ("prepare" if (force or reroll.get("se") is not None
+                                 or not se.is_file()) else "skip")
+            print(f"[{char}] still preparation: {pre} {cs.still} -> {se} "
+                  f"(python; then sprite-gen cutout --key measured)", file=out)
+        else:
+            d = step["dir"]
+            edit = "edit" if (force or reroll.get(d) is not None
+                              or not ctx.dir_still(char, d).is_file()) else "skip"
+            print(f"[{char}/{d}] direction edit ({edit}): {proj.workflows['edit']} on the "
+                  f"fitted still (se.fit.png) ({step['turn'][:48]}...)", file=out)
 
 
 def run_stills(ctx, turn, char, reroll, force, log, out):
     """FR 6 + FR 7: prepare the still, key the SE still for the palette, then
     one edit per generated direction other than se, each padded onto the
     reference canvas like the SE still (skip-if-exists; a reroll forces its
-    direction). Returns False if a step failed."""
+    direction). Walks `still_plan`, the shared loop behind the dry-run plan.
+    Returns False if a step failed."""
     p = ctx.project
     cs = next(c for c in p.characters if c.name == char)
     se = ctx.dir_still(char, "se")
@@ -147,36 +164,37 @@ def run_stills(ctx, turn, char, reroll, force, log, out):
     def forced(path):
         return force or not path.is_file()
 
-    if forced(se):
-        print(f"[{char}] still preparation: prepare {cs.still} -> {se}", file=out)
-        stills.prepare(cs.still, se)
     # the edit's input: the fitted 832x1024 still (the edit's output latent size),
-    # not the padded reference; not a direction still
+    # not a direction still; prepared whenever the SE still is
     fit_png = ctx.master(char) / "se.fit.png"
-    if forced(se) or not fit_png.is_file():
-        stills.fit(cs.still, fit_png)
-    if forced(ctx.master(char) / "se.keyed.png"):
-        cmds = stages.plan_cutout(se, ctx.master(char))
-        ok = run_cmds(ctx, cmds, log, out) and ok
-    for d in p.generate:
-        if d == "se":
-            continue  # the still's own direction keeps the prepared image
-        dst = ctx.dir_still(char, d)
-        seed = reroll.get(d, p.seed)
-        if dst.is_file() and reroll.get(d) is None and not force:
-            continue  # skip-if-exists (FR 10)
-        prompt = stills.dir_prompt(turn, d, cs.pronoun)
-        # absolute, resolved at load (FR 1, amendment 1)
-        argv = [sys.executable, "-m", "sprite_pipeline.comfy", "edit",
-                "--workflow", str(p.workflows["edit"]), "--image", str(fit_png),
-                "--prompt", prompt, "--seed", str(seed),
-                "--prefix", f"{char}/dir-{d}", "--copy-to", str(dst)]
-        print(f"[{char}/{d}] direction edit: seed {seed}", file=out)
-        if run_cmds(ctx, [(argv, "edit")], log, out):
-            # same canvas and scale as the prepared SE still (padding in place)
-            stills.prepare(dst, dst)
+    for step in still_plan(p, char):
+        if step["kind"] == "prepare":
+            if forced(se):
+                print(f"[{char}] still preparation: prepare {cs.still} -> {se}", file=out)
+                stills.prepare(cs.still, se)
+            if forced(se) or not fit_png.is_file():
+                stills.fit(cs.still, fit_png)
+            if forced(ctx.master(char) / "se.keyed.png"):
+                cmds = stages.plan_cutout(se, ctx.master(char))
+                ok = run_cmds(ctx, cmds, log, out) and ok
         else:
-            ok = False
+            d = step["dir"]
+            dst = ctx.dir_still(char, d)
+            seed = reroll.get(d, p.seed)
+            if dst.is_file() and reroll.get(d) is None and not force:
+                continue  # skip-if-exists (FR 10)
+            prompt = stills.dir_prompt(turn, d, cs.pronoun)
+            # absolute, resolved at load (FR 1, amendment 1)
+            argv = [sys.executable, "-m", "sprite_pipeline.comfy", "edit",
+                    "--workflow", str(p.workflows["edit"]), "--image", str(fit_png),
+                    "--prompt", prompt, "--seed", str(seed),
+                    "--prefix", f"{char}/dir-{d}", "--copy-to", str(dst)]
+            print(f"[{char}/{d}] direction edit: seed {seed}", file=out)
+            if run_cmds(ctx, [(argv, "edit")], log, out):
+                # same canvas and scale as the prepared SE still (padding in place)
+                stills.prepare(dst, dst)
+            else:
+                ok = False
     return ok
 
 
@@ -214,13 +232,10 @@ def run_cmds(ctx, cmds, log, out=None):
     return ok
 
 
-def cmd_approve(args, out, interim=False):
+def cmd_approve(args, out):
     """`sprite-pipeline approve <project.yaml> <character>`: record the review
     (FR 8). refs.approved holds the hash of the direction stills; exit 2 with
-    the missing stills named if any does not exist yet. `interim` writes the
-    slice-2 marker (still filenames, one per line) instead of the hash: the
-    hash gate then treats those stills as approved while their names and
-    locations stand, and any later change invalidates it."""
+    the missing stills named if any does not exist yet."""
     try:
         proj = project.load_project(args["project_file"])
     except ValueError as e:
@@ -238,7 +253,7 @@ def cmd_approve(args, out, interim=False):
               f"{', '.join(str(ctx.dir_still(args['character'], d)) for d in missing)}",
               file=sys.stderr)
         return 2
-    ctx.write_refs_approved(args["character"], interim=interim)
+    ctx.write_refs_approved(args["character"])
     print(f"[{args['character']}] approved {ctx.refs_approved(args['character'])}",
           file=out)
     return 0
@@ -263,22 +278,16 @@ def main(argv=None, out=None):
                    help="print the plan, run nothing")
     # `approve <project.yaml> <character>` takes no options: REMAINDER keeps
     # every word after the command name verbatim in approve_args.
-    # --interim writes the slice-2 marker (the still names, not the hash) so
-    # approvals recorded by earlier-slice tooling keep working.
     p = sub.add_parser("approve", help="approve a character's direction stills")
-    p.add_argument("--interim", action="store_true",
-                   help="record the interim slice-2 approval (still names, not a hash)")
     p.add_argument("approve_args", nargs=argparse.REMAINDER)
     a = ap.parse_args(argv)
     args = vars(a)
 
     if a.command == "approve":
         rest = list(args["approve_args"])
-        interim = args["interim"]
         if len(rest) != 2 or any(x.startswith("-") for x in rest):
-            ap.error("usage: sprite-pipeline approve [--interim] <project.yaml> <character>")
-        return cmd_approve({"project_file": rest[0], "character": rest[1]}, out,
-                           interim=interim)
+            ap.error("usage: sprite-pipeline approve <project.yaml> <character>")
+        return cmd_approve({"project_file": rest[0], "character": rest[1]}, out)
 
     force = args["force"]
     try:

@@ -1,7 +1,8 @@
 """Still preparation, direction-edit prompts and the review sheet (spec FR 6-8).
 
-`prepare` (`fit` then `place`) scales a still to fit the reference canvas, centres it and pads with
-the still's corner colour. The reference canvas is 1280x1280: the still is
+`prepare` (`fit` then `place`) takes a still of any size on a flat background,
+scales it to fit the reference canvas, centres it and pads it with the still's
+corner colour (spec AC3). The reference canvas is 1280x1280: the still is
 scaled to fit within 832x1024 (keeping aspect ratio), then pasted centred
 within that 832x1024 area at (224, 128) on the canvas. Every pixel outside the
 scaled still is filled with the still's corner colour (top-left pixel).

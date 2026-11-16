@@ -21,6 +21,10 @@ VIEWS_DIR = Path(__file__).resolve().parent / "views"
 
 KNOWN_DIRS = {"n", "ne", "e", "se", "s", "sw", "w", "nw"}
 VALID_STATES = {"idle", "walk", "run", "jump", "attack"}
+
+# the drive scene's camera elevation: the one definition, used by the drive
+# plan (stages.plan_pair) and by its cache key (Project.drive_key)
+DRIVE_ELEV = 45
 # pronoun -> the pose subject when a character gives no `who` (FR 2)
 DEFAULT_WHO = {"he": "a man", "she": "a woman", "they": "a person"}
 PRONOUNS = set(DEFAULT_WHO)
@@ -116,14 +120,14 @@ class Project:
         """Cache key over the source file content, the action and the drive params (FR 10, dec: dec-629).
 
         The key hashes the GLB bytes and never names the file path, so copying
-        the GLB elsewhere leaves the cached drive valid. elev is 45, the value
-        in the current motion library.
+        the GLB elsewhere leaves the cached drive valid. elev is DRIVE_ELEV,
+        the value in the current motion library.
         """
         payload = json.dumps(
             {"glb": hashlib.sha256(glb_bytes).hexdigest(), "action": anim.action,
              "repeats": anim.repeats, "pre": anim.pre, "post": anim.post,
              "head_lift": anim.head_lift, "rig": {"neck": self.rig["neck"], "head": self.rig["head"]},
-             "elev": 45, "frame_size": self.sprite.frame_size,
+             "elev": DRIVE_ELEV, "frame_size": self.sprite.frame_size,
              **({"canvas": anim.canvas} if anim.canvas and anim.canvas != self.sprite.frame_size else {})},
             sort_keys=True)
         return hashlib.sha256(payload.encode()).hexdigest()[:16]

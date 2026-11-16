@@ -130,11 +130,9 @@ class TestRunCmdsFailureOutput(Env):
         master.mkdir(parents=True)
         for d in ["s", "se", "e", "ne", "n"]:
             (master / f"{d}.png").write_bytes(_make_tiny_png())
-        with open(project) as f:
-            proj_text = f.read()
-        # approve via interim marker
+        # approve the five stills just written (plain hash approval)
         from sprite_pipeline import cli
-        code = cli.main(["approve", "--interim", str(project), "courier"])
+        code = cli.main(["approve", str(project), "courier"])
         self.assertEqual(code, 0)
 
         fake = FakeRun(fails={
@@ -162,7 +160,7 @@ class TestRunCmdsFailureOutput(Env):
         for d in ["s", "se", "e", "ne", "n"]:
             (master / f"{d}.png").write_bytes(_make_tiny_png())
         from sprite_pipeline import cli
-        code = cli.main(["approve", "--interim", str(project), "courier"])
+        code = cli.main(["approve", str(project), "courier"])
         self.assertEqual(code, 0)
 
         fake = FakeRun(fails={
@@ -187,7 +185,7 @@ class TestRunCmdsFailureOutput(Env):
         for d in ["s", "se", "e", "ne", "n"]:
             (master / f"{d}.png").write_bytes(_make_tiny_png())
         from sprite_pipeline import cli
-        code = cli.main(["approve", "--interim", str(project), "courier"])
+        code = cli.main(["approve", str(project), "courier"])
         self.assertEqual(code, 0)
 
         fake = FakeRun()  # everything succeeds

@@ -15,7 +15,6 @@ configured path. No stage shells out to POSIX-only commands such as cp
 (dec-617): the drive copy is a Python step.
 """
 import hashlib
-import json
 import os
 import shutil
 import subprocess
@@ -33,8 +32,10 @@ PAIR_STAGES = ["drive", "animate", "key", "loop"]
 KIT_STAGES = ["pixel", "export"]
 STAGES = PAIR_STAGES + KIT_STAGES
 
-# the drive scene's camera-height node; LSR-modeled from the view preset's 45°
-DRIVE_ELEV = 45
+# the drive scene's camera-height node; LSR-modeled from the view preset's 45°.
+# One definition lives in project.py (drive_key hashes it); re-exported here
+# so stages.DRIVE_ELEV keeps resolving and plan_pair shares that definition.
+DRIVE_ELEV = project.DRIVE_ELEV
 DRIVE_ORTHO = 3.0  # render_drive.py camera ortho_scale at sprite.frame_size
 
 
@@ -114,16 +115,11 @@ class StageCtx:
             h.update(b"\0")
         return h.hexdigest()
 
-    def write_refs_approved(self, char, interim=False):
-        """`approve` writes refs.approved: the hash of the direction stills,
-        or (interim, slice-2 compatibility) the still filenames the approval
-        covers — the gate accepts it only while every named still exists."""
+    def write_refs_approved(self, char):
+        """`approve` writes refs.approved: the hash of the direction stills."""
         dst = self.refs_approved(char)
         dst.parent.mkdir(parents=True, exist_ok=True)
-        if interim:
-            dst.write_text("interim\n" + "".join(f"{d}\n" for d in self.project.generate))
-        else:
-            dst.write_text(self.refs_hash(char) + "\n")
+        dst.write_text(self.refs_hash(char) + "\n")
 
     def is_approved(self, char):
         h = self.refs_hash(char)
@@ -132,7 +128,8 @@ class StageCtx:
             return False
         text = f.read_text().strip()
         if text.startswith("interim"):
-            # slice-2 rule: approved while the named five stills exist
+            # pre-slice-3 interim files (written by the removed
+            # `approve --interim`): approved while the named five stills exist
             named = text.splitlines()[1:]
             return (sorted(named) == sorted(self.project.generate)
                     and all(self.dir_still(char, d).is_file()

@@ -7,6 +7,7 @@ Driven by the project: the direction order is `directions.generate` then the
 by the project's `naming` pattern (`{character}`, `{animation}`, `{dir}`). The
 atlas is referenced as `atlas.png`, relative to the `.tres` it sits next to.
 """
+import copy
 from pathlib import Path
 
 from PIL import Image
@@ -107,18 +108,19 @@ def do_export(ctx, char, anims, dirs, log, dry):
     available to pixelize. Runs the same export as ``export_char`` with the
     project's naming and mirror table. Returns True when nothing is missing.
     A direction in ``dirs`` that is neither generated nor mirrored is simply
-    not projected, matching the old behaviour."""
+    not projected, matching the old behaviour. The narrowing is scoped to
+    this call: it happens on a private shallow copy of the caller's project,
+    so the caller's project object never changes, not even while the export
+    runs."""
     p = ctx.project
     names = [a.name for a in anims]
     available = set(dirs)
-    gen = list(p.generate)
-    mir = dict(p.mirror)
-    p.generate = [d for d in gen if d in available]
-    p.mirror = {m: s for m, s in mir.items() if s in available}
-    try:
-        return export_char(ctx, char, names, log, dry)
-    finally:
-        p.generate, p.mirror = gen, mir
+    narrowed = copy.copy(p)  # shallow: same path, sprite, rig, animations
+    narrowed.generate = [d for d in p.generate if d in available]
+    narrowed.mirror = {m: s for m, s in p.mirror.items() if s in available}
+    view = copy.copy(ctx)  # the same run's locations, the narrowed project
+    view.project = narrowed
+    return export_char(view, char, names, log, dry)
 
 
 def write_tres(path, atlas_rel, anims, fps=30):
