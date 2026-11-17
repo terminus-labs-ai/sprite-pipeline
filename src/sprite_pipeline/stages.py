@@ -21,9 +21,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-from sprite_pipeline import config, project, stills
+from sprite_pipeline import config, metrics, project, stills
 
 PACKAGE = Path(__file__).resolve().parent
+
+# FR 8 (amendment 3): the review stop's advisory size band — a direction
+# still whose size ratio lies outside it prints CHECK; nothing ever blocks
+SIZE_CHECK_LOW = 0.85
+SIZE_CHECK_HIGH = 1.15
 
 FACING = {"s": 0, "se": 45, "e": 90, "ne": 135, "n": 180}
 MIRROR_OF = {"sw": "se", "w": "e", "nw": "ne"}
@@ -181,6 +186,20 @@ class StageCtx:
                             for d in self.project.generate))
         return text == h
 
+    def ref_size(self, char, d):
+        """FR 8 (amendment 3): the direction still's size ratio — its body
+        height measured the way the master is (FR 6, `metrics.measure`) over
+        the anchor profile's target on the 832x1024 edit canvas
+        (`stills.body_target`), rounded to two decimals. None when the still
+        has no figure to measure: the report is advisory and never raises."""
+        try:
+            body_h = metrics.measure(self.dir_still(char, d))["body_h"]
+        except Exception:
+            return None
+        target = stills.body_target(self.project.sprite.frame_size,
+                                    project.anchor_profile(self.project))
+        return round(body_h / target, 2)
+
     # -- stage output predicates (skip-if-exists)
     def stage_done(self, stage, char=None, anim=None, d=None):
         if stage == "drive":
@@ -308,6 +327,16 @@ class StageCtx:
             from sprite_pipeline import export_godot
             return export_godot.export_char(self, char, anim_names, log, dry)
         raise ValueError(stage)
+
+
+def size_note(ratio):
+    """FR 8 (amendment 3): the size report of one direction still — the
+    two-decimal ratio (`0.97`), plus ` CHECK` below SIZE_CHECK_LOW or above
+    SIZE_CHECK_HIGH; an unmeasurable still (None) reads `n/a CHECK`."""
+    if ratio is None:
+        return "n/a CHECK"
+    flag = " CHECK" if not SIZE_CHECK_LOW <= ratio <= SIZE_CHECK_HIGH else ""
+    return f"{ratio:.2f}{flag}"
 
 
 def sprite_gen_exe():

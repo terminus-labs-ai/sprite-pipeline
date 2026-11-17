@@ -209,18 +209,22 @@ def animate_prompt(view, style, char, anim, d):
     return " ".join(parts)
 
 
-def review_sheet(images, dst, height=340):
+def review_sheet(images, dst, height=340, labels=None):
     """FR 8: the review sheet — the direction stills side by side at one
-    height, each labelled with its direction (from the new-kit branch's
-    contact_sheet). Returns the destination path."""
+    height, each labelled underneath (from the new-kit branch's
+    contact_sheet): `labels[i]` when given (the size report's `se 0.97`,
+    amendment 3), otherwise the still's direction (its file stem). Returns
+    the destination path."""
     from PIL import Image, ImageDraw
 
     ims = [Image.open(p).convert("RGB") for p in images]
     ims = [im.resize((round(im.width * height / im.height), height), Image.LANCZOS)
            for im in ims]
+    if labels is None:
+        labels = [Path(p).stem for p in images]
     sheet = Image.new("RGB", (sum(im.width for im in ims), height + 24), (40, 42, 52))
     draw, x = ImageDraw.Draw(sheet), 0
-    for im, label in zip(ims, [Path(p).stem for p in images]):
+    for im, label in zip(ims, labels):
         sheet.paste(im, (x, 0))
         draw.text((x + 8, height + 5), label, fill=(230, 230, 230))
         x += im.width

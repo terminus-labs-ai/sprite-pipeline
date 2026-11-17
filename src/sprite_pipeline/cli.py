@@ -514,8 +514,19 @@ def _go(args, out, load_kwargs=None):
                 # FR 8 review stop: the sheet is the review artefact
                 sheet = ctx.refs_sheet(char)
                 missing = ctx.missing_stills(char)
-                stills.review_sheet([ctx.dir_still(char, d) for d in proj.generate
-                                     if ctx.dir_still(char, d).is_file()], sheet)
+                shown = [d for d in proj.generate if ctx.dir_still(char, d).is_file()]
+                # amendment 3: the advisory size report, one line per
+                # direction and the ratio on its sheet label; never blocks
+                labels = []
+                for d in shown:
+                    ratio = ctx.ref_size(char, d)
+                    note = stages.size_note(ratio)
+                    labels.append(f"{d} {note}")
+                    size = "n/a" if ratio is None else f"{ratio:.2f}x"
+                    flag = " CHECK" if note.endswith("CHECK") else ""
+                    print(f"[{char}/{d}] ref size {size}{flag}", file=out)
+                stills.review_sheet([ctx.dir_still(char, d) for d in shown], sheet,
+                                    labels=labels)
                 print(f"[{char}] review sheet {sheet}", file=out)
             if stop_now and not args["no_stop"]:
                 stopped.append(char)
