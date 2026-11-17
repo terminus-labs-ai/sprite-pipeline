@@ -21,8 +21,15 @@ centre crop and downscale, so Wan Animate receives a ref framed like the
 mannequin it follows. The master replaces the old fill-fit plus 1280
 reference canvas: there is no 1280 canvas anymore.
 
+`guide` (FR 7) places a mannequin render facing a direction on the edit
+canvas at that direction's target (silhouette: difference > GUIDE_DIFF from
+the render's corner) and `reanchor` scales and pastes a direction's raw edit
+the same way, without the standing-figure rule; `anchor`, `guide` and
+`reanchor` share one scale-and-paste (`_place`).
+
 `dir_prompt` (FR 7) is the edit-workflow prompt for one direction: the view's
-turn prompt for that direction, wrapped in the character's pronoun. `review_sheet`
+turn prompt for that direction, wrapped in the character's pronoun, plus the
+guide line (GUIDE_LINE). `review_sheet`
 (FR 8) writes the review sheet `refs-sheet.png`: the direction stills side by
 side, each labelled underneath.
 """
@@ -42,6 +49,17 @@ CANVAS_H = 1024
 CROP_Y = (CANVAS_H - CANVAS_W) // 2
 # the flat chroma background of an anchored master (FR 6)
 CHROMA_GREEN = (31, 203, 25)
+
+# FR 7: a mannequin render's silhouette is every pixel differing from its
+# corner colour by more than this (its grey shading sits close to its grey
+# background)
+GUIDE_DIFF = 4
+# FR 7: the guide line appended to a direction edit's prompt (dec-732)
+GUIDE_LINE = ("Image 2 is a plain grey mannequin used only as a guide: draw {obj} in "
+              "exactly the mannequin's pose, facing direction, size and position in "
+              "the frame, with {pos} feet exactly where the mannequin's feet are and "
+              "{pos} arms held out like the mannequin's. Do not draw the mannequin "
+              "itself.")
 
 # the edit prompt's framing, from the new-kit branch (dir_prompt): the turn
 # prompt keeps the character, camera and style; only the facing changes
@@ -102,42 +120,50 @@ def floor_line(frame_size, profile, d):
     return anchor_floor(profile["dirs"][d]["floor_y"], frame_size)
 
 
-def anchor(src, dst, frame_size, profile, d):
-    """FR 6: prepare the anchored master of a standing-figure still against
-    the profile's direction `d` (`s` for the master).
+def _figure_mask(im, diff):
+    """The figure of an RGB image: every pixel differing from the top-left
+    corner colour by more than `diff` in any channel."""
+    arr = numpy.asarray(im, dtype=numpy.int16)
+    return (abs(arr - arr[0, 0]) > diff).any(axis=2)
 
-    The still is scaled uniformly by `body_target(frame_size, profile, d) /
-    measured body height` and its figure pasted on an 832x1024 canvas filled
-    with CHROMA_GREEN: its feet row lands on `floor_line(frame_size, profile,
-    d)` and its measured centre x lands on the canvas centre (x 416). Returns
-    `dst`. Raises metrics.FigureError when the still is not a standing figure
-    (or cannot be read as an image at all).
+
+def _place(src, dst, frame_size, profile, d, diff):
+    """The FR 6 scale-and-paste shared by `anchor`, `reanchor` and `guide`.
+
+    The figure of `src` (every pixel differing from its corner colour by
+    more than `diff`; its bounding box is the measured body) is scaled
+    uniformly so its body height equals `body_target(frame_size, profile,
+    d)` and pasted on an 832x1024 canvas filled with CHROMA_GREEN: its feet
+    row lands on `floor_line(frame_size, profile, d)` and its centre x on
+    the canvas centre (x 416). Returns `dst`. Raises metrics.FigureError
+    naming `src` when it cannot be read as an image or has no figure.
     """
     from PIL import Image
 
     try:
-        metrics.check_standing(src)
-        m = metrics.measure(src)
-    except metrics.FigureError:
-        raise
+        im = Image.open(src).convert("RGB")
     except Exception as e:
-        # an unreadable or malformed source is a standing-rule failure too:
-        # FigureError naming the file, never a traceback
+        # an unreadable or malformed source: FigureError naming the file,
+        # never a traceback
         raise metrics.FigureError(str(src), "not a readable image") from e
-    im = Image.open(src).convert("RGB")
-    scale = body_target(frame_size, profile, d) / m["body_h"]
+    mask = _figure_mask(im, diff)
+    rows = numpy.nonzero(mask.any(axis=1))[0]
+    if len(rows) == 0:
+        raise metrics.FigureError(str(src), "nothing to measure (flat image)")
+    scale = body_target(frame_size, profile, d) / (int(rows.max()) - int(rows.min()) + 1)
     new_w = max(1, round(im.width * scale))
     new_h = max(1, round(im.height * scale))
-    # the whole source frame scales as one image, then the figure — every
-    # pixel further than CORNER_DIFF from the source's own flat background
-    # (the backdrop resamples to itself, the figure does not) — is pasted on
-    # the chroma canvas: the master's background is flat (31, 203, 25)
-    # wherever the figure is not
+    # the whole source frame scales as one image and the figure mask with
+    # it (the mask is taken on the source, so resampling ringing near a
+    # low threshold never grows the figure); the masked pixels are pasted
+    # on the chroma canvas: the background is flat (31, 203, 25) wherever
+    # the figure is not
     scaled = im.resize((new_w, new_h), Image.LANCZOS)
-    bg = numpy.asarray(scaled.getpixel((0, 0)), dtype=numpy.int16)
     arr = numpy.asarray(scaled, dtype=numpy.uint8)
-    fig = (abs(numpy.asarray(scaled, dtype=numpy.int16) - bg)
-           > metrics.CORNER_DIFF).any(axis=2)
+    fig = numpy.asarray(Image.fromarray(mask.astype(numpy.uint8) * 255)
+                        .resize((new_w, new_h), Image.BILINEAR)) >= 128
+    if not fig.any():
+        raise metrics.FigureError(str(src), "nothing to measure (flat image)")
     # the figure bbox in the scaled frame: the paste pins its bottom row
     # (floor + 1) on the floor line and its centre x on the canvas centre
     ys, xs = numpy.nonzero(fig)
@@ -159,6 +185,47 @@ def anchor(src, dst, frame_size, profile, d):
     Path(dst).parent.mkdir(parents=True, exist_ok=True)
     canvas.save(dst)
     return dst
+
+
+def anchor(src, dst, frame_size, profile, d):
+    """FR 6: prepare the anchored master of a standing-figure still against
+    the profile's direction `d` (`s` for the master).
+
+    The still is scaled uniformly by `body_target(frame_size, profile, d) /
+    measured body height` and its figure pasted on an 832x1024 canvas filled
+    with CHROMA_GREEN: its feet row lands on `floor_line(frame_size, profile,
+    d)` and its measured centre x lands on the canvas centre (x 416). Returns
+    `dst`. Raises metrics.FigureError when the still is not a standing figure
+    (or cannot be read as an image at all).
+    """
+    try:
+        metrics.check_standing(src)
+    except metrics.FigureError:
+        raise
+    except Exception as e:
+        # an unreadable or malformed source is a standing-rule failure too:
+        # FigureError naming the file, never a traceback
+        raise metrics.FigureError(str(src), "not a readable image") from e
+    return _place(src, dst, frame_size, profile, d, metrics.CORNER_DIFF)
+
+
+def reanchor(src, dst, frame_size, profile, d):
+    """FR 7: re-anchor a direction's raw edit (`master/<d>.edit.png`) to
+    `master/<d>.png` — `anchor`'s scale-and-paste with direction `d`'s
+    target and floor, centred at x 416, without the standing-figure rule (a
+    T-pose wider than tall is re-anchored, not rejected). Returns `dst`.
+    Raises metrics.FigureError naming `src` when it has no figure."""
+    return _place(src, dst, frame_size, profile, d, metrics.CORNER_DIFF)
+
+
+def guide(render, dst, frame_size, profile, d):
+    """FR 7: place a mannequin render facing `d` on the edit canvas as the
+    direction's guide (`master/<d>.guide.png`). The render's silhouette is
+    every pixel differing from its corner colour by more than GUIDE_DIFF;
+    it is scaled to direction `d`'s target, feet on its floor line, centred
+    at x 416, on CHROMA_GREEN. Returns `dst`. Raises metrics.FigureError
+    naming `render` when it has no silhouette."""
+    return _place(render, dst, frame_size, profile, d, GUIDE_DIFF)
 
 
 def size_master(src, dst_dir, size=STILL_SIZE):
@@ -183,8 +250,9 @@ def size_master(src, dst_dir, size=STILL_SIZE):
 
 def dir_prompt(turn, d, pronoun):
     """FR 7: the direction edit's prompt — the view's turn prompt `turn[d]`
-    for direction `d` worded in the character's pronoun. Raises ValueError
-    for a pronoun or direction the preset does not know."""
+    for direction `d` worded in the character's pronoun, then GUIDE_LINE in
+    that pronoun. Raises ValueError for a pronoun or direction the preset
+    does not know."""
     forms = pronoun_forms(pronoun)
     if d not in turn:
         raise ValueError(f"view has no turn prompt for direction {d!r}")
@@ -193,7 +261,7 @@ def dir_prompt(turn, d, pronoun):
     return ("The exact same character with the exact same outfit, colors, proportions "
             f"and art style, seen from the exact same high isometric camera angle "
             f"looking down at {obj}, standing in the same relaxed pose, but now "
-            + turn_text + "." + TAIL)
+            + turn_text + "." + TAIL + " " + GUIDE_LINE.format(**forms))
 
 
 def animate_prompt(view, style, char, anim, d):

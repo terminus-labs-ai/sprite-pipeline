@@ -98,7 +98,7 @@ Top level:
 
 Workflow slots:
 
-Each workflow JSON is a ComfyUI API graph. The build fills the nodes titled `sp:<slot>` with the step's values; a slot the step needs but the workflow lacks is an error naming the workflow and the title. The full slot list is `sp:prompt`, `sp:negative`, `sp:pose_prompt`, `sp:seed`, `sp:ref_image`, `sp:drive_video`, `sp:width`, `sp:height`, `sp:length`, `sp:pose_strength` and `sp:save`; the shipped `edit.json` carries `sp:prompt`, `sp:seed`, `sp:ref_image` and `sp:save`, and the shipped `animate.json` carries all eleven.
+Each workflow JSON is a ComfyUI API graph. The build fills the nodes titled `sp:<slot>` with the step's values; a slot the step needs but the workflow lacks is an error naming the workflow and the title. The full slot list is `sp:prompt`, `sp:negative`, `sp:pose_prompt`, `sp:seed`, `sp:ref_image`, `sp:drive_video`, `sp:width`, `sp:height`, `sp:length`, `sp:pose_strength` and `sp:save`; the full list also has `sp:pose_image`; the shipped `edit.json` carries `sp:prompt`, `sp:seed`, `sp:ref_image`, `sp:pose_image` (the direction guide, encoded like `sp:ref_image` and chained as a second reference on both conditionings) and `sp:save`, and the shipped `animate.json` carries all eleven.
 
 ## Stills
 
@@ -106,7 +106,9 @@ A character's still must be an **A- or T-pose standing figure on a flat backgrou
 
 The tool anchors the still to the mannequin. Wan Animate follows the Blender mannequin of the drive video, and a reference whose figure is a different size or stands at a different height than that mannequin drifts in size across animations. So `go` scales the still uniformly until its measured body height equals the front-facing (`s`) mannequin's on the 832×1024 edit canvas (`body_h × 832 / frame_size`: 391 px for the `ual-female.glb` mannequin at the default `frame_size` 704), pins its feet to that mannequin's floor line (`floor_y × 832 / frame_size + 96`: 715 for that mannequin at 704), centres it horizontally and fills every other pixel with flat chroma green `(31, 203, 25)`. The 832 and 96 come from the packaged animate workflow, which centre-crops the 832×1024 reference to 832×832 (rows 96–927) and scales it to `frame_size`. After the animate step's centre crop and downscale, the reference has exactly the drive video's framing: its figure measures the mannequin's body height with its feet on the drive floor line. This anchored master (`master/s.png`) is the input for every direction edit and, keyed, the palette reference.
 
-The measured body height includes anything carried on the body: a headdress, a raised weapon or a held item makes the box taller than the body, so the figure comes out slightly smaller than the mannequin. The review stop covers this: each direction still's size ratio (measured body height ÷ the mannequin target) is printed as `[<character>/<dir>] ref size <ratio>x` and on the sheet label, and a ratio outside ±15% (below 0.85 or above 1.15) adds `CHECK`. The report is advisory; `approve` succeeds regardless.
+Each other generated direction is guided by the mannequin. `go` renders the first-listed animation's GLB in its `A_TPose` facing that direction with the drive camera (Blender; the render is cached in `motion_cache`, so later runs and other characters reuse it), and places its silhouette on the edit canvas at that direction's own mannequin size, floor line and centre as `master/<d>.guide.png`. The edit gets the anchored master as image 1 and the guide as image 2, with a prompt line asking for the mannequin's pose, facing, size and position. Its raw output is kept as `master/<d>.edit.png` and re-anchored to `master/<d>.png`: the same scale-and-paste as the master, with that direction's target, and no standing-figure rule (the guided directions take the mannequin's near-T-pose arms, which can make the figure wider than tall). A raw edit with no figure, or a failed guide render, fails that direction; the other directions still run and `go` exits 1. The master `s` keeps the source still's arms and gets no guide.
+
+The measured body height includes anything carried on the body: a headdress, a raised weapon or a held item makes the box taller than the body, so the figure comes out slightly smaller than the mannequin. The review stop covers this: each direction's size ratio (the measured body height of its raw edit `master/<d>.edit.png`, or of `master/<d>.png` when there is no raw edit, ÷ that direction's mannequin target; the master `s` against the `s` target) is printed as `[<character>/<dir>] ref size <ratio>x` and on the sheet label, and a ratio outside ±15% (below 0.85 or above 1.15) adds `CHECK`. The report is advisory; `approve` succeeds regardless.
 
 ## Mannequin profiles
 
@@ -130,7 +132,7 @@ cd my-game
 # GLB into anims/ual.glb; if `go` reports no mannequin profile for it, run:
 #   sprite-pipeline mannequin-profile anims/ual.glb
 sprite-pipeline go project.yaml --dry-run   # prints the plan, runs nothing
-sprite-pipeline go project.yaml             # anchors the still, makes the four other direction edits
+sprite-pipeline go project.yaml             # anchors the still, makes the four guided direction edits
 # -> writes out/courier/refs-sheet.png and stops for review
 # look at the sheet, then:
 sprite-pipeline approve project.yaml courier
@@ -139,14 +141,14 @@ sprite-pipeline go project.yaml             # drive, animate, key, loop, pixel, 
 
 `go` writes, under `<project dir>/out/<character>/`:
 
-- `master/` — the anchored master `s.png` (832×1024 on flat chroma green), the four direction stills (`se.png`, `e.png`, …), the keyed master `s.keyed.png` (the palette reference) and `source.sha256` (the fingerprint of the source still; changing the still rebuilds the character).
+- `master/` — the anchored master `s.png` (832×1024 on flat chroma green), the four re-anchored direction stills (`se.png`, `e.png`, …) with each one's guide (`<d>.guide.png`) and raw edit (`<d>.edit.png`), the keyed master `s.keyed.png` (the palette reference) and `source.sha256` (the fingerprint of the source still; changing the still rebuilds the character).
 - `refs-sheet.png` — the direction stills side by side, one per direction, each label carrying its size ratio (the review artefact).
-- `refs.approved` — written by `approve`; holds the hash of the direction stills. A change to any of them (or a `--reroll`) invalidates it and `go` stops at the sheet again.
+- `refs.approved` — written by `approve`; holds the hash of the direction stills (`<d>.png`; the guides and raw edits are not in it). A change to any of them (or a `--reroll`) invalidates it and `go` stops at the sheet again.
 - `clips/<animation>-<dir>.mp4` — the animated clips.
 - `loops/<animation>-<dir>/cycle/` — the looped frames.
 - `sprites/` — the pixel frames (one per animation × direction), `atlas.png`, `sprite_frames.tres` (Godot 4 `SpriteFrames`, one animation per `naming` entry) and `contact-sheet.png`.
 
-Narrow a run with `--characters a,b`, `--animations run,punch`, `--dirs s,se`, `--stage drive|animate|key|loop|pixel|export`; reroll one still with `--reroll <char>:<dir>=<seed>`; skip the review stop for one run with `--no-stop`; rerun stages whose output exists with `--force`; preview with `--dry-run`. A failed (animation, direction) is logged and the run continues; the summary ends with exit code 1 when anything failed. Exit code 0 means done or stopped for review (the stop prints the sheet path and the approve command); exit code 2 means the project file is invalid (including a still that is not a standing figure and a source GLB with no mannequin profile).
+Narrow a run with `--characters a,b`, `--animations run,punch`, `--dirs s,se`, `--stage drive|animate|key|loop|pixel|export`; reroll one still with `--reroll <char>:<dir>=<seed>` (redoes that direction's edit and re-anchor only); skip the review stop for one run with `--no-stop`; rerun stages whose output exists with `--force`; preview with `--dry-run`. A failed (animation, direction) is logged and the run continues; the summary ends with exit code 1 when anything failed. Exit code 0 means done or stopped for review (the stop prints the sheet path and the approve command); exit code 2 means the project file is invalid (including a still that is not a standing figure and a source GLB with no mannequin profile).
 
 ## Platforms
 

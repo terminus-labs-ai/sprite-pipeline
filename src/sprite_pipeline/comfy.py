@@ -29,6 +29,7 @@ SLOT_INPUTS = {
     "pose_prompt": "text",
     "seed": "noise_seed",
     "ref_image": "image",
+    "pose_image": "image",
     "drive_video": "file",
     "width": "width",
     "height": "height",
@@ -176,9 +177,11 @@ def animate(cfg, workflow_path, values, ref_image, drive_video, out_clip, log):
     return 0
 
 
-def edit(cfg, workflow_path, prompt, seed, image, prefix, copy_to, log):
-    """Run the edit workflow: fill slots, upload the image, post, collect
-    the output image, and copy it to copy_to.
+def edit(cfg, workflow_path, prompt, seed, image, prefix, copy_to, log,
+         pose_image=None):
+    """Run the edit workflow: fill slots, upload the image (and the guide
+    `pose_image` into `sp:pose_image` when given, FR 9), post, collect the
+    output image, and copy it to copy_to.
 
     Returns 0 on success, 1 on failure.
     """
@@ -189,14 +192,14 @@ def edit(cfg, workflow_path, prompt, seed, image, prefix, copy_to, log):
     name = upload(api, image)
     log.append(f"$ upload {image} -> {name}")
 
+    values = {"prompt": prompt, "seed": seed, "ref_image": name, "save": prefix}
+    if pose_image is not None:
+        values["pose_image"] = upload(api, pose_image)
+        log.append(f"$ upload {pose_image} -> {values['pose_image']}")
+
     # fill slots
     graph = load_workflow(workflow_path)
-    fill_slots(graph, {
-        "prompt": prompt,
-        "seed": seed,
-        "ref_image": name,
-        "save": prefix,
-    }, Path(workflow_path).name)
+    fill_slots(graph, values, Path(workflow_path).name)
 
     # post and collect
     files = post(api, graph, str(out_root))
@@ -218,6 +221,8 @@ def build_parser():
     n = sub.add_parser("edit")
     n.add_argument("--workflow", required=True, help="path to the workflow JSON file")
     n.add_argument("--image", required=True, help="path to the fitted still to edit")
+    n.add_argument("--pose-image", default=None,
+                   help="path to the guide image for sp:pose_image")
     n.add_argument("--prompt", required=True)
     n.add_argument("--seed", type=int, default=0)
     n.add_argument("--prefix", required=True, help="filename_prefix for sp:save")
@@ -245,7 +250,8 @@ if __name__ == "__main__":
     cfg = config.load()
     log = []
     if a.cmd == "edit":
-        rc = edit(cfg, a.workflow, a.prompt, a.seed, a.image, a.prefix, a.copy_to, log)
+        rc = edit(cfg, a.workflow, a.prompt, a.seed, a.image, a.prefix, a.copy_to, log,
+                  pose_image=a.pose_image)
     else:
         values = {
             "prompt": a.prompt,

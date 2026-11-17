@@ -106,3 +106,25 @@ def standing_still(width=500, height=900, *, body_h=300, body_w=200,
     frame height, no wider than tall, feet inside the lower 20% band."""
     return pose_frame(width, height, body_h=body_h, body_w=body_w,
                       feet_from_bottom=feet_from_bottom, **kwargs)
+
+
+# the drive camera's facing in degrees per direction (render_drive.py argv)
+FACING_DIRS = {"0": "s", "45": "se", "90": "e", "135": "ne", "180": "n"}
+
+
+def fake_blender(argv):
+    """A faked Blender run of render_drive.py (FR 7 guide renders): for the
+    A_TPose action, write the stub mannequin facing the argv's direction
+    (`tpose_render` of that direction's DIRS entry) as the first frame in
+    the argv's frames dir and return the direction; for any other action
+    write nothing and return None."""
+    from pathlib import Path
+
+    rest = argv[argv.index("--") + 1:]
+    if rest[1] != "A_TPose":
+        return None
+    d = FACING_DIRS[rest[3]]
+    frames = Path(rest[2])
+    frames.mkdir(parents=True, exist_ok=True)
+    tpose_render(**DIRS[d]).save(frames / "f0001.png")
+    return d

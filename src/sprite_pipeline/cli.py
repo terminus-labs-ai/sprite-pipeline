@@ -9,9 +9,11 @@
 
 Per character: prepare the still (anchor it to the mannequin profile on the
 832x1024 edit canvas, then key the `s` master for the palette), then run the
-edit workflow once per generated direction other than the still's own, with
-the view's turn prompt in the character's pronoun (FR 6, FR 7); each step is
-skip-if-exists unless --force or --reroll names it. `approve` writes
+edit workflow once per generated direction other than the still's own, guided
+by the mannequin rendered facing that direction, with the view's turn prompt
+in the character's pronoun, and re-anchor the raw edit to that direction's
+mannequin (FR 6, FR 7); each step is skip-if-exists unless --force or
+--reroll names it. `approve` writes
 refs.approved (hash of the direction stills); the review stop (FR 8) keeps the
 character's animation stages away until that hash matches, --no-stop skips the
 stop for one run. `mannequin-profile` renders a GLB's A_TPose at 704 with the
@@ -148,8 +150,9 @@ def still_plan(proj, char):
 
 
 def _print_still_plan(proj, ctx, char, reroll, force, out):
-    """FR 1 dry-run lines: the still anchoring and one line per direction
-    edit (skip marked; --reroll and --force plan the step again)."""
+    """FR 1 dry-run lines: the still anchoring, then per guided direction
+    the guide, the direction edit and the re-anchor (FR 7; skip marked;
+    --reroll and --force plan the direction again). Nothing is rendered."""
     cs = next(c for c in proj.characters if c.name == char)
     still_dir = proj.still_dir
     master = ctx.dir_still(char, still_dir)
@@ -161,19 +164,32 @@ def _print_still_plan(proj, ctx, char, reroll, force, out):
                   f"(python; then sprite-gen cutout --key measured)", file=out)
         else:
             d = step["dir"]
-            edit = "edit" if (force or reroll.get(d) is not None
-                              or not ctx.dir_still(char, d).is_file()) else "skip"
+            redo = (force or reroll.get(d) is not None
+                    or not ctx.dir_still(char, d).is_file())
+            edit = "edit" if redo else "skip"
+            guide = ctx.master(char) / f"{d}.guide.png"
+            raw = ctx.master(char) / f"{d}.edit.png"
+            print(f"[{char}/{d}] guide ({'place' if redo else 'skip'}): A_TPose of "
+                  f"{proj.animations[0].source.name} facing {d} (blender, cached in "
+                  f"motion_cache) -> {guide}", file=out)
             print(f"[{char}/{d}] direction edit ({edit}): {proj.workflows['edit']} on the "
-                  f"anchored master ({master.name}) ({step['turn'][:48]}...)", file=out)
+                  f"anchored master ({master.name}) with guide {guide.name} "
+                  f"({step['turn'][:48]}...) -> {raw}", file=out)
+            print(f"[{char}/{d}] re-anchor ({'anchor' if redo else 'skip'}): "
+                  f"{raw} -> {ctx.dir_still(char, d)} (python)", file=out)
 
 
 def run_stills(ctx, turn, char, reroll, force, log, out):
     """FR 6 + FR 7: anchor the still to the mannequin profile onto the master
     (`master/<still_dir>.png`, the first generated direction), key the master
-    for the palette, then one edit per generated direction other than the
-    master's, each run on the anchored master (skip-if-exists; a reroll
-    forces its direction). Walks `still_plan`, the shared loop behind the
-    dry-run plan. Returns False if a step failed."""
+    for the palette, then per generated direction other than the master's:
+    the guide (the anchor GLB's A_TPose rendered facing it, cached, placed
+    as `master/<d>.guide.png`), the edit on the anchored master with that
+    guide (raw output `master/<d>.edit.png`) and the re-anchor to
+    `master/<d>.png` (skip-if-exists on `<d>.png`; a reroll forces its
+    direction). A failed guide render, edit or re-anchor fails that
+    direction only. Walks `still_plan`, the shared loop behind the dry-run
+    plan. Returns False if a step failed."""
     p = ctx.project
     cs = next(c for c in p.characters if c.name == char)
     # FR 6: the master is the anchored still: the edit input for every other
@@ -209,21 +225,37 @@ def run_stills(ctx, turn, char, reroll, force, log, out):
             seed = reroll.get(d, p.seed)
             if dst.is_file() and reroll.get(d) is None and not force:
                 continue  # skip-if-exists (FR 10)
+            guide = ctx.master(char) / f"{d}.guide.png"
+            raw = ctx.master(char) / f"{d}.edit.png"
+            # FR 7: the guide is the anchor GLB's A_TPose facing d (cached
+            # in motion_cache: a cached render skips Blender), placed at the
+            # direction's target on the edit canvas
+            try:
+                render = render_mannequin(p.animations[0].source, d, cached=True)
+                stills.guide(render, guide, p.sprite.frame_size, profile, d)
+            except (SystemExit, metrics.FigureError) as e:
+                print(f"[{char}/{d}] guide {guide} failed: {e}", file=out)
+                ok = False
+                continue
             prompt = stills.dir_prompt(turn, d, cs.pronoun)
             # the edit input is the anchored 832x1024 master itself (FR 6):
-            # absolute, resolved at load (FR 1, amendment 1)
+            # absolute, resolved at load (FR 1, amendment 1); the raw output
+            # is kept as <d>.edit.png
             argv = [sys.executable, "-m", "sprite_pipeline.comfy", "edit",
                     "--workflow", str(p.workflows["edit"]), "--image", str(master),
+                    "--pose-image", str(guide),
                     "--prompt", prompt, "--seed", str(seed),
-                    "--prefix", f"{char}/dir-{d}", "--copy-to", str(dst)]
+                    "--prefix", f"{char}/dir-{d}", "--copy-to", str(raw)]
             print(f"[{char}/{d}] direction edit: seed {seed}", file=out)
-            if run_cmds(ctx, [(argv, "edit")], log, out):
-                # the edit ran on the 832x1024 master, so its output comes
-                # back on that canvas and is already the direction's still:
-                # nothing is copied a second time (skip-if-exists, FR 10,
-                # and `se.png` is written once by the anchor step above)
-                pass
-            else:
+            if not run_cmds(ctx, [(argv, "edit")], log, out):
+                ok = False
+                continue
+            # FR 7: re-anchor the raw edit to the direction's target, floor
+            # and centre, without the standing-figure rule
+            try:
+                stills.reanchor(raw, dst, p.sprite.frame_size, profile, d)
+            except metrics.FigureError as e:
+                print(f"[{char}/{d}] re-anchor failed: {e}", file=out)
                 ok = False
     return ok
 
@@ -289,11 +321,14 @@ def cmd_approve(args, out, **load_kwargs):
     return 0
 
 
-def render_mannequin(glb, d="s"):
+def render_mannequin(glb, d="s", cached=False):
     """Render the GLB's `A_TPose` at the drive resolution 704 with the drive
     camera facing `d` (`stages.FACING[d]`, elevation 45°, ortho 3.0 — the
     same camera and scene the drive plan uses). Returns the path of the
-    rendered frame. Needs Blender and the host config (FR 14)."""
+    rendered frame, which lives in the configured motion_cache keyed like a
+    drive (GLB bytes, action, drive params). With `cached`, an existing
+    render is returned without running Blender (FR 7's guide render).
+    Needs Blender and the host config (FR 14)."""
     from PIL import Image
 
     # a stand-in project for the drive plan: the drive resolution, the
@@ -318,6 +353,9 @@ def render_mannequin(glb, d="s"):
     # there is no upload. When no frame lands, the glob below finds nothing
     # and this raises SystemExit, never a traceback.
     frames = ctx.frames_dir("mannequin", anim, d)
+    shot = frames / "A_TPose.png"
+    if cached and shot.is_file():
+        return shot
     cmds = [(c, k) for c, k in ctx.plan_pair("mannequin", anim, d, "drive")
             if k != "copy-drive"]
     log = []
@@ -331,7 +369,6 @@ def render_mannequin(glb, d="s"):
                          f"landed in {frames}")
     # a drive is many frames; the profile's pose is the first held frame
     img = Image.open(shots[0])
-    shot = frames / "A_TPose.png"
     img.save(shot)
     return shot
 

@@ -488,6 +488,8 @@ class TestSharedStillPlan(unittest.TestCase):
                 out = Path(argv[argv.index("--out") + 1])
                 out.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(argv[argv.index("cutout") + 1], out)
+            elif "render_drive.py" in joined:  # Blender: the FR 7 guide render
+                mannequins.fake_blender(argv)
             return Result()
 
         code, out = run_cli(["go", str(proj), "--dry-run"])

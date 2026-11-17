@@ -1,15 +1,18 @@
 """Tests for the review stop's advisory size report (spec AC16; FR 8 extended
 by amendments 3 and 9, FR 6 measurement).
 
-With ComfyUI faked at subprocess.run, the faked edit writes synthetic
-direction stills on the 832x1024 edit canvas whose figures measure a chosen
-ratio of the anchor profile's target (the stub mannequin's `s` body_h 331
-at frame_size 704, on the edit canvas 331 x 832 / 704 = 391 px). At the stop,
-`go` logs one `[courier/<dir>] ref size <ratio>x` line per direction, the
-refs sheet labels append the two-decimal ratio and `CHECK` below 0.85 or
-above 1.15, and `approve` succeeds whatever the ratios — the report never
-blocks. A direction still that changes after approval still invalidates the
-approval exactly as before.
+With ComfyUI (and Blender, for the FR 7 guide renders) faked at
+subprocess.run, the faked edit writes synthetic raw edits
+(`master/<d>.edit.png`) on the 832x1024 edit canvas whose figures measure a
+chosen ratio of their own direction's target (amendment 10: the stub
+mannequin's `dirs[d].body_h` at frame_size 704 x 832 / 704 — se 433.7, e
+471.5, ne 418.4, n 361.6; the `s` master against 391.2). At the stop, `go`
+logs one `[courier/<dir>] ref size <ratio>x` line per direction measured on
+the raw edit (or on `<d>.png` when no raw edit exists), the refs sheet labels
+append the two-decimal ratio and `CHECK` below 0.85 or above 1.15, and
+`approve` succeeds whatever the ratios — the report never blocks. A
+direction still (`<d>.png`) that changes after approval still invalidates the
+approval exactly as before; a changed raw edit alone does not.
 
 The expected ratios, labels and log lines are stated literally here; the
 target only sizes the synthetic inputs.
@@ -24,12 +27,14 @@ from PIL import Image, ImageDraw
 import mannequins
 from test_review import GEN_DIRS, ReviewFixture
 
-from sprite_pipeline import stages, stills
+from sprite_pipeline import config, project, stages, stills
 
 # the anchor target on the 832x1024 canvas for the stub profile at 704
 # (FR 8, amendments 9 and 10): 331 * 832 / 704 = 391.2 px (the spec's "391
 # px target") — stills.body_target(704, profile, "s")
 TARGET = mannequins.BODY_H * 832 / 704
+# amendment 10: each direction's own target, from the stub profile's dirs
+DIR_TARGET = {d: v["body_h"] * 832 / 704 for d, v in mannequins.DIRS.items()}
 # AC16's synthetic direction stills; ne sits below the band to cover the low
 # side of the CHECK rule
 AC16_RATIOS = {"se": 0.97, "e": 1.06, "ne": 0.84, "n": 1.30}
@@ -40,10 +45,11 @@ TILE_W = round(832 * 340 / 1024)
 STRIP_H = 24
 
 
-def direction_still(path, ratio, marker=None):
+def direction_still(path, ratio, marker=None, d="s"):
     """A synthetic direction still on the 832x1024 edit canvas: one standing
-    figure `ratio` x TARGET px tall (feet 10 px above the bottom edge)."""
-    im = mannequins.pose_frame(832, 1024, body_h=round(ratio * TARGET),
+    figure `ratio` x direction `d`'s target px tall (feet 10 px above the
+    bottom edge)."""
+    im = mannequins.pose_frame(832, 1024, body_h=round(ratio * DIR_TARGET[d]),
                                body_w=200, feet_from_bottom=10)
     if marker is not None:
         # inside the figure: a 1.00 figure spans rows 623-1013, x 316-515
@@ -68,8 +74,10 @@ class SizeFixture(ReviewFixture):
         self.ratios = dict(AC16_RATIOS)
 
     def _make_still(self, argv):
+        # the raw edit `master/<d>.edit.png` at its direction's ratio
         dst = Path(argv[argv.index("--copy-to") + 1])
-        direction_still(dst, self.ratios[dst.stem])
+        d = dst.name.split(".")[0]
+        direction_still(dst, self.ratios[d], d=d)
 
     def size_lines(self, out):
         return [m.groups() for m in map(SIZE_LINE.match, out.splitlines()) if m]
@@ -190,10 +198,65 @@ class TestChangedStillInvalidates(SizeFixture):
         self.assertIn("unapproved", out)
         self.assertEqual(len(self.stopped_lines(out)), 1, out)
         self.assertNotIn("stage=animate", out)
-        # the real run stops at the sheet again, with the new size reported,
-        # and leaves the old approval file as it was
+        # the real run stops at the sheet again, reporting the size of n's
+        # raw edit (amendment 10: n.edit.png is still there, so it is what is
+        # measured), and leaves the old approval file as it was
         code, out = self.run_cli(["go", str(self.project)], fake=self._fresh_fake())
         self.assert_stopped_with_approve_command(code, out)
-        self.assertIn(("n", "1.00x"), self.size_lines(out), out)
+        self.assertIn(("n", "1.30x CHECK"), self.size_lines(out), out)
         self.assertEqual((self.out_char / "refs.approved").read_text(), approved)
         self.assertNotEqual(approved.strip(), self.stills_hash())
+
+
+# ------------------------- AC16-r2 / r3 / r5 (amendment 10): what is measured
+
+class TestMeasuredFile(SizeFixture):
+    """AC16-r2: with `<d>.edit.png` absent the ratio is measured on
+    `<d>.png`. AC16-r3: the `s` master's ratio is against the FR 6 target
+    (391.2 at 704), not another direction's. AC16-r5: a change to the raw
+    edit alone keeps the approval (the hash covers `<d>.png` only)."""
+
+    def test_ac16_r2_without_a_raw_edit_the_ratio_is_measured_on_the_still(self):
+        code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+        self.assertIn(("e", "1.06x"), self.size_lines(out), out)
+        # no raw edit for e; e.png itself at 0.90 of the e target (the
+        # re-anchored e.png measured 1.00, the deleted raw edit 1.06)
+        (self.master / "e.edit.png").unlink()
+        direction_still(self.master / "e.png", 0.90, d="e")
+        fake = self._fresh_fake()
+        code, out = self.run_cli(["go", str(self.project)], fake=fake)
+        self.assert_stopped_with_approve_command(code, out)
+        self.assertIn(("e", "0.90x"), self.size_lines(out), out)
+        self.assertEqual(fake.edit_calls(), [])  # e.png exists: no re-edit
+
+    def test_ac16_r2_ref_size_reads_the_raw_edit_then_the_still(self):
+        ctx = stages.StageCtx(project.load_project(self.project), config.load())
+        direction_still(self.master / "e.png", 1.06, d="e")
+        self.assertEqual(ctx.ref_size("courier", "e"), 1.06)
+        direction_still(self.master / "e.edit.png", 1.30, d="e")
+        self.assertEqual(ctx.ref_size("courier", "e"), 1.30)
+
+    def test_ac16_r3_the_s_master_is_measured_against_the_fr6_target(self):
+        ctx = stages.StageCtx(project.load_project(self.project), config.load())
+        # 430 px: 430 / 391.2 = 1.10 (against the e target 471.5 it would
+        # read 0.91, against se 433.7 0.99)
+        self.master.mkdir(parents=True, exist_ok=True)
+        mannequins.pose_frame(832, 1024, body_h=430, body_w=200,
+                              feet_from_bottom=10).save(self.master / "s.png")
+        self.assertEqual(ctx.ref_size("courier", "s"), 1.10)
+
+    def test_ac16_r5_a_changed_raw_edit_alone_keeps_the_approval(self):
+        code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+        self.assert_stopped_with_approve_command(code, out)
+        code, out = self.run_cli(self.approve_cmd())
+        self.assertEqual(code, 0, out)
+        approved = (self.out_char / "refs.approved").read_text()
+        before = (self.master / "n.edit.png").read_bytes()
+        direction_still(self.master / "n.edit.png", 1.00, marker=(200, 20, 20), d="n")
+        self.assertNotEqual((self.master / "n.edit.png").read_bytes(), before)
+        code, out = self.run_cli(["go", str(self.project), "--dry-run"])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.stopped_lines(out), [], out)
+        self.assertIn("stage=animate", out)
+        self.assertEqual((self.out_char / "refs.approved").read_text(), approved)
+        self.assertEqual(approved.strip(), self.stills_hash())

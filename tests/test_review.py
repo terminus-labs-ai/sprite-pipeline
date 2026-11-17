@@ -57,15 +57,26 @@ OBJ = {"he": "him", "she": "her", "they": "them"}
 POS = {"he": "his", "she": "her", "they": "their"}
 
 
+def guide_line(pronoun):
+    """FR 7 (amendment 10): the guide line ending every direction edit's
+    prompt, worded in the pronoun; the spec's text, stated here verbatim."""
+    obj, pos = OBJ[pronoun], POS[pronoun]
+    return (f"Image 2 is a plain grey mannequin used only as a guide: draw {obj} in "
+            f"exactly the mannequin's pose, facing direction, size and position in the "
+            f"frame, with {pos} feet exactly where the mannequin's feet are and {pos} "
+            f"arms held out like the mannequin's. Do not draw the mannequin itself.")
+
+
 def expected_prompt(turn, d, pronoun):
     """The AC4-r1/r2 pinned prompt: the framing plus the view's turn text with
-    the pronoun substituted (the real turn texts hold {pos} / {obj} fields)."""
+    the pronoun substituted (the real turn texts hold {pos} / {obj} fields),
+    then the FR 7 guide line."""
     obj = OBJ[pronoun]
     pos = POS[pronoun]
     return ("The exact same character with the exact same outfit, colors, proportions "
             f"and art style, seen from the exact same high isometric camera angle "
             f"looking down at {obj}, standing in the same relaxed pose, but now "
-            + turn[d].format(obj=obj, pos=pos) + "." + TAIL)
+            + turn[d].format(obj=obj, pos=pos) + "." + TAIL + " " + guide_line(pronoun))
 
 
 class _Result:
@@ -196,7 +207,10 @@ class ReviewFixture(Env):
                               "ffmpeg": self._produce_drive})
 
     def _produce_frames(self, argv):
-        # the fake blender writes its frames; the fake ffmpeg writes its output
+        # the fake blender writes its frames (the stub mannequin for an FR 7
+        # guide render); the fake ffmpeg writes its output
+        if mannequins.fake_blender(argv) is not None:
+            return
         frames = Path(argv[argv.index("--") + 3])
         frames.mkdir(parents=True, exist_ok=True)
         (frames / "f0000.png").write_bytes(TINY_PNG)
@@ -255,8 +269,9 @@ class TestFirstRunStopsForReview(ReviewFixture):
         self.assertEqual(len(edits), 4, "\n".join(" ".join(c) for c in self.fake.calls))
         got = {e[e.index("--seed") + 1] for e in edits}
         for d in EDIT_DIRS:
+            # FR 7: the raw edit is kept as <d>.edit.png
             matches = [e for e in edits if e[e.index("--copy-to") + 1]
-                       == str(self.master / f"{d}.png")]
+                       == str(self.master / f"{d}.edit.png")]
             self.assertEqual(len(matches), 1, d)
             e = matches[0]
             # the pinned FR 7 prompt: the view's turn text in her/her
@@ -266,6 +281,8 @@ class TestFirstRunStopsForReview(ReviewFixture):
             img = Path(e[e.index("--image") + 1])
             self.assertEqual(img, self.master / "s.png")
             self.assertEqual(Image.open(img).size, (832, 1024))
+            self.assertEqual(e[e.index("--pose-image") + 1],
+                             str(self.master / f"{d}.guide.png"))
         self.assertEqual(self.fake.animate_calls(), [])
         # the anchored master on the edit canvas, palette key, direction
         # stills on disk
@@ -309,8 +326,9 @@ class TestFirstRunStopsForReview(ReviewFixture):
 
 
 class TestDirectionStillsShareTheReferenceCanvas(ReviewFixture):
-    """The edit output keeps the 832x1024 edit canvas byte-for-byte (FR 6:
-    no 1280 padding anymore — the retired fill-fit/corner-fill behaviour)."""
+    """The raw edit output (`<d>.edit.png`, FR 7) keeps the 832x1024 edit
+    canvas byte-for-byte (FR 6: no 1280 padding anymore — the retired
+    fill-fit/corner-fill behaviour)."""
 
     def _make_still(self, argv):
         # an 832x1024 standing figure with a marker inside its body
@@ -325,7 +343,7 @@ class TestDirectionStillsShareTheReferenceCanvas(ReviewFixture):
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
         self.assertEqual(code, 0, out)
         for d in EDIT_DIRS:
-            im = Image.open(self.master / f"{d}.png").convert("RGB")
+            im = Image.open(self.master / f"{d}.edit.png").convert("RGB")
             self.assertEqual(im.size, (832, 1024), d)
             self.assertEqual(im.getpixel((0, 0)), (10, 200, 10), d)  # corner colour
             self.assertEqual(im.getpixel((831, 1023)), (10, 200, 10), d)
@@ -381,7 +399,7 @@ class TestPronounThey(ReviewFixture):
         edits = self.fake.edit_calls()
         self.assertEqual(len(edits), 4)
         for e in edits:
-            d = Path(e[e.index("--copy-to") + 1]).stem
+            d = Path(e[e.index("--copy-to") + 1]).name.split(".")[0]
             prompt = e[e.index("--prompt") + 1]
             self.assertEqual(prompt, expected_prompt(self.turn, d, "they"))
             self.assertIn("looking down at them,", prompt)
@@ -499,7 +517,7 @@ class TestReroll(ReviewFixture):
         edits = self.fake.edit_calls()
         self.assertEqual(len(edits), 1, "\n".join(" ".join(c) for c in self.fake.calls))
         self.assertEqual(edits[0][edits[0].index("--copy-to") + 1],
-                         str(self.master / "n.png"))
+                         str(self.master / "n.edit.png"))
         self.assertEqual(edits[0][edits[0].index("--seed") + 1], "2")
         # stops again: the sheet path and the approve command end the run
         self.assertTrue((self.out_char / "refs-sheet.png").is_file())
@@ -618,7 +636,8 @@ class TestDirPromptAndSheet(unittest.TestCase):
             want = ("The exact same character with the exact same outfit, colors, "
                     "proportions and art style, seen from the exact same high "
                     f"isometric camera angle looking down at {obj}, standing in the "
-                    f"same relaxed pose, but now so we see only {pos} back." + TAIL)
+                    f"same relaxed pose, but now so we see only {pos} back." + TAIL
+                    + " " + guide_line(pronoun))
             self.assertEqual(stills.dir_prompt(turn, "n", pronoun), want)
 
     def test_bad_pronoun_raises(self):

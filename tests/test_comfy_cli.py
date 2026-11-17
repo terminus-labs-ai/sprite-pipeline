@@ -59,12 +59,25 @@ POS = {"he": "his", "she": "her", "they": "their"}
 
 def expected_prompt(turn, d, pronoun):
     """The FR 7 direction edit prompt: the fixed framing plus the view's turn
-    text with the pronoun substituted."""
+    text with the pronoun substituted, then the guide line (amendment 10)."""
     obj, pos = OBJ[pronoun], POS[pronoun]
     return ("The exact same character with the exact same outfit, colors, proportions "
             f"and art style, seen from the exact same high isometric camera angle "
             f"looking down at {obj}, standing in the same relaxed pose, but now "
-            + turn[d].format(obj=obj, pos=pos) + "." + TAIL)
+            + turn[d].format(obj=obj, pos=pos) + "." + TAIL
+            + f" Image 2 is a plain grey mannequin used only as a guide: draw {obj} "
+            f"in exactly the mannequin's pose, facing direction, size and position "
+            f"in the frame, with {pos} feet exactly where the mannequin's feet are "
+            f"and {pos} arms held out like the mannequin's. Do not draw the "
+            f"mannequin itself.")
+
+
+def standing_png():
+    """A standing figure on a flat background as PNG bytes: what the fake
+    server renders for a `go` run, so the FR 7 re-anchor finds a figure."""
+    buf = io.BytesIO()
+    mannequins.standing_still().save(buf, format="PNG")
+    return buf.getvalue()
 
 
 class FakeComfyUI(BaseHTTPRequestHandler):
@@ -105,7 +118,7 @@ class FakeComfyUI(BaseHTTPRequestHandler):
             out_dir = self.server.output / subfolder
             out_dir.mkdir(parents=True, exist_ok=True)
             out_file = out_dir / f"{save_prefix.rsplit('/', 1)[-1]}_00001.png"
-            out_file.write_bytes(TINY_PNG)
+            out_file.write_bytes(getattr(self.server, "render", TINY_PNG))
             pid = f"pid{len(self.server.prompts)}"
             self.server.histories[pid] = {
                 "status": {"status_str": "success"},
@@ -276,7 +289,12 @@ class TestGoRealEditAtHTTPSeam(Env):
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_bytes(TINY_PNG)
 
-        return {"cutout": fake_cutout}
+        # Blender renders the FR 7 guide (the stub mannequin per direction)
+        return {"cutout": fake_cutout, "render_drive.py": mannequins.fake_blender}
+
+    def setUp(self):
+        super().setUp()
+        self.server.render = standing_png()
 
     def test_r5_exactly_four_edits_and_no_animate(self):
         project = make_project(self.tmp)
@@ -309,10 +327,12 @@ class TestGoRealEditAtHTTPSeam(Env):
         # pronoun; the image is the fitted SE still; the prefix is char/dir-<d>
         for d in EDIT_DIRS:
             argv = next((c for c in edits
-                         if c[c.index("--copy-to") + 1] == str(master / f"{d}.png")), d)
+                         if c[c.index("--copy-to") + 1] == str(master / f"{d}.edit.png")), d)
             self.assertEqual(argv[argv.index("--prompt") + 1],
                              expected_prompt(turn, d, "she"), d)
             self.assertEqual(argv[argv.index("--image") + 1], str(master / "s.png"), d)
+            self.assertEqual(argv[argv.index("--pose-image") + 1],
+                             str(master / f"{d}.guide.png"), d)
             self.assertEqual(argv[argv.index("--prefix") + 1], f"courier/dir-{d}", d)
             g = next((g for g in self.server.prompts
                       if any((n.get("_meta") or {}).get("title") == "sp:prompt"
@@ -322,6 +342,9 @@ class TestGoRealEditAtHTTPSeam(Env):
             ref = next(n for n in g.values()
                        if (n.get("_meta") or {}).get("title") == "sp:ref_image")
             self.assertEqual(ref["inputs"]["image"], "s.png", d)
+            pose = next(n for n in g.values()
+                        if (n.get("_meta") or {}).get("title") == "sp:pose_image")
+            self.assertEqual(pose["inputs"]["image"], f"{d}.guide.png", d)
             self.assertEqual(next(n for n in g.values()
                                   if (n.get("_meta") or {}).get("title") == "sp:seed")
                              ["inputs"]["noise_seed"], 7, d)  # examples project seed
@@ -417,6 +440,57 @@ class TestComfyEditMissingSlot(Env):
             "--prefix", "c/dir-n", "--copy-to", str(self.tmp / "out.png")])
         self.assertNotEqual(rc, 0, text)
         self.assertIn("edit.json: missing node titled sp:seed", text)
+        self.assertEqual(self.server.prompts, [])
+
+
+# ------------------------------------------- AC18-r6 (amendment 10): pose image
+
+class TestComfyEditPoseImage(Env):
+    """AC18-r6 (FR 9): `comfy edit --pose-image` uploads the guide and fills
+    `sp:pose_image` with the returned name; on a workflow without
+    `sp:pose_image` it is a WorkflowError naming the workflow file and the
+    slot, and nothing is posted."""
+
+    def _images(self):
+        img, pose = self.tmp / "s.png", self.tmp / "e.guide.png"
+        Image.new("RGB", (32, 32), (10, 200, 10)).save(img)
+        Image.new("RGB", (32, 32), (128, 128, 128)).save(pose)
+        return img, pose
+
+    def test_ac18_r6_pose_image_fills_the_slot_with_the_upload(self):
+        img, pose = self._images()
+        rc, text = self.run_module([
+            "edit", "--workflow", str(WF_EDIT), "--image", str(img),
+            "--pose-image", str(pose), "--prompt", "p", "--seed", "3",
+            "--prefix", "c/dir-e", "--copy-to", str(self.tmp / "out.png")])
+        self.assertEqual(rc, 0, text)
+        by_title = {((n.get("_meta") or {}).get("title")): n
+                    for n in self.server.prompts[0].values()}
+        self.assertEqual(by_title["sp:pose_image"]["inputs"]["image"], "e.guide.png")
+        self.assertEqual(by_title["sp:ref_image"]["inputs"]["image"], "s.png")
+        self.assertEqual((self.inputs / "e.guide.png").read_bytes(), pose.read_bytes())
+
+    def test_ac18_r6_workflow_without_pose_image_errors_naming_it(self):
+        from sprite_pipeline import comfy, config
+
+        graph = json.loads(WF_EDIT.read_text())
+        graph["30"]["_meta"]["title"] = "mannequin"
+        wf = self.tmp / "my-edit.json"
+        wf.write_text(json.dumps(graph))
+        img, pose = self._images()
+        with self.assertRaises(comfy.WorkflowError) as cm:
+            comfy.edit(config.load(), wf, "p", 3, img, "c/dir-e",
+                       self.tmp / "out.png", [], pose_image=pose)
+        self.assertIn("my-edit.json", str(cm.exception))
+        self.assertIn("sp:pose_image", str(cm.exception))
+        self.assertEqual(self.server.prompts, [])
+        # the CLI: non-zero exit, the same message, no post
+        rc, text = self.run_module([
+            "edit", "--workflow", str(wf), "--image", str(img),
+            "--pose-image", str(pose), "--prompt", "p", "--seed", "3",
+            "--prefix", "c/dir-e", "--copy-to", str(self.tmp / "out.png")])
+        self.assertNotEqual(rc, 0, text)
+        self.assertIn("my-edit.json: missing node titled sp:pose_image", text)
         self.assertEqual(self.server.prompts, [])
 
 

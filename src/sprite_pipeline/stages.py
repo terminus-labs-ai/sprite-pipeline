@@ -187,18 +187,21 @@ class StageCtx:
         return text == h
 
     def ref_size(self, char, d):
-        """FR 8 (amendment 3): the direction still's size ratio — its body
-        height measured the way the master is (FR 6, `metrics.measure`) over
-        the anchor profile's master (`s`) target on the 832x1024 edit canvas
-        (`stills.body_target`), rounded to two decimals. None when the still
-        has no figure to measure: the report is advisory and never raises."""
+        """FR 8 (amendments 3 and 10): direction `d`'s size ratio — the body
+        height of its raw edit (`master/<d>.edit.png`, or `master/<d>.png`
+        when no raw edit exists) measured the way the master is (FR 6,
+        `metrics.measure`) over that direction's target on the 832x1024 edit
+        canvas (`stills.body_target`; the `s` master by the FR 6 target),
+        rounded to two decimals. None when there is no figure to measure: the
+        report is advisory and never raises."""
+        raw = self.master(char) / f"{d}.edit.png"
         try:
-            body_h = metrics.measure(self.dir_still(char, d))["body_h"]
+            body_h = metrics.measure(raw if raw.is_file()
+                                     else self.dir_still(char, d))["body_h"]
         except Exception:
             return None
         target = stills.body_target(self.project.sprite.frame_size,
-                                    project.anchor_profile(self.project),
-                                    self.project.still_dir)
+                                    project.anchor_profile(self.project), d)
         return round(body_h / target, 2)
 
     # -- stage output predicates (skip-if-exists)
