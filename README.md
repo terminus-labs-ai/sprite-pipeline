@@ -11,7 +11,7 @@ Turns one character still into a pixel-art sprite set for a shared motion librar
   - Models: `wan_animate_2_int8_convrot.safetensors` (UNet), `lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors` (LoRA), `umt5_xxl_fp8_e4m3fn_scaled.safetensors` (CLIP, wan), `clip_vision_h.safetensors` (CLIP Vision), `Wan2_1_VAE_bf16.safetensors` (VAE)
   - Nodes: `UNETLoader`, `LoraLoaderModelOnly`, `ModelSamplingSD3`, `CLIPLoader`, `CLIPVisionLoader`, `VAELoader`, `CLIPTextEncode`, `ImageScale`, `LoadVideo`, `GetVideoComponents`, `CLIPVisionEncode`, `ImageFromBatch`, `WanAnimate2ToVideo`, `KSamplerSelect`, `BasicScheduler`, `SamplerCustom`, `TrimVideoLatent`, `VAEDecode`, `SaveImage`, `LoadImage`
   (ComfyUI 0.3-style custom nodes; ComfyUI setup — installing it, its models and nodes — is manual.)
-- **Blender 5.x** (renders the mannequin drives headless).
+- **Blender 5.x** (renders the mannequin drives headless, and the A_TPose that `sprite-pipeline mannequin-profile` measures).
 - **ffmpeg** and **ffprobe** (pack the rendered frames into drive clips).
 - **img2webp** (the child tools' extra binary; the config's `extra_path` can point at it).
 - **Quaternius Universal Animation Library (CC0)** — the motion library the drives come from; download it from Quaternius' itch.io page and use `Animation Library[Standard]/Godot/AnimationLibrary_Godot_Standard.glb`.
@@ -69,7 +69,7 @@ Top level:
 `characters[]` (FR 2):
 
 - `name` — the character name (used in `naming` and output paths).
-- `still` — the isometric still of the character, relative to the project file (e.g. `stills/courier.png`).
+- `still` — the character's still, relative to the project file (e.g. `stills/courier.png`): an A- or T-pose standing figure facing front on a flat background (see [Stills](#stills)).
 - `describe` — a one-line description of the character.
 - `pronoun` — `he`, `she` or `they` (fills the view's face line and turn prompts).
 - `who` — optional pose subject for `{who}` in animation prompts; defaults from the pronoun (`a man`, `a woman`, `a person`).
@@ -100,6 +100,24 @@ Workflow slots:
 
 Each workflow JSON is a ComfyUI API graph. The build fills the nodes titled `sp:<slot>` with the step's values; a slot the step needs but the workflow lacks is an error naming the workflow and the title. The full slot list is `sp:prompt`, `sp:negative`, `sp:pose_prompt`, `sp:seed`, `sp:ref_image`, `sp:drive_video`, `sp:width`, `sp:height`, `sp:length`, `sp:pose_strength` and `sp:save`; the shipped `edit.json` carries `sp:prompt`, `sp:seed`, `sp:ref_image` and `sp:save`, and the shipped `animate.json` carries all eleven.
 
+## Stills
+
+A character's still must be an **A- or T-pose standing figure on a flat background**. `go` measures the figure as the bounding box of the pixels that differ from the top-left corner colour by more than 40 in any channel, and accepts it as a standing figure when the box is at least 20% of the image height, at least as tall as it is wide, and its bottom lies in the lower 20% of the image. Otherwise `go` exits 2 naming the file and the failed rule (`too wide`, `too small` or `feet not at the bottom`) before it writes anything.
+
+The tool anchors the still to the mannequin. Wan Animate follows the Blender mannequin of the drive video, and a reference whose figure is a different size or stands at a different height than that mannequin drifts in size across animations. So `go` scales the still uniformly until its measured body height equals the mannequin's on the 832×1024 edit canvas (`body_h × 1024 / frame_size`: 471 px for the `ual-female.glb` mannequin at the default `frame_size` 704), pins its feet to the mannequin's floor line (764 for that mannequin at 704), centres it horizontally and fills every other pixel with flat chroma green `(31, 203, 25)`. After the animate step's downscale to `frame_size`, the reference has exactly the drive video's framing. This anchored master (`master/s.png`) is the input for every direction edit and, keyed, the palette reference.
+
+The measured body height includes anything carried on the body: a headdress, a raised weapon or a held item makes the box taller than the body, so the figure comes out slightly smaller than the mannequin. The review stop covers this: each direction still's size ratio (measured body height ÷ the mannequin target) is printed as `[<character>/<dir>] ref size <ratio>x` and on the sheet label, and a ratio outside ±15% (below 0.85 or above 1.15) adds `CHECK`. The report is advisory; `approve` succeeds regardless.
+
+## Mannequin profiles
+
+The anchor needs the mannequin's body height and floor line, measured once per source GLB. The package ships profiles for the Quaternius UAL mannequins (`ual.glb` and `ual-female.glb`), keyed by the sha256 of the GLB bytes. The first-listed animation's GLB anchors the project's stills, and every distinct source GLB in the project must have a profile: a GLB with none makes `go` exit 2, printing its sha256 prefix and the command that measures it.
+
+```bash
+sprite-pipeline mannequin-profile anims/ual.glb
+```
+
+renders the GLB's `A_TPose` at 704 px with the drive camera (facing `s`, elevation 45°), measures its body height and floor line, prints the measured profile as JSON (`{"glb_name": ..., "resolution": 704, "body_h": ..., "floor_y": ...}`) and writes it to the user profile file `~/.sprite-pipeline/mannequin_profiles.json` (`$SPRITE_PIPELINE_HOME/mannequin_profiles.json` when that is set). Re-running it on the same GLB replaces that GLB's entry; entries for other GLBs stay. The user file merges over the packaged profiles, last write wins per hash. The render needs Blender and the host config ([Config](#config)); a different download or export of the library has different bytes and needs its own profile.
+
 ## Quickstart
 
 The example in `examples/isometric/` carries the current motion library (13 animations, run/punch/sneak tested) and one character entry. Copy it and run:
@@ -107,10 +125,12 @@ The example in `examples/isometric/` carries the current motion library (13 anim
 ```bash
 cp -r examples/isometric my-game
 cd my-game
-# drop your own isometric still of your character into stills/courier.png
-# and the Quaternius UAL Godot Standard GLB into anims/ual.glb
+# drop your character's still (A/T-pose, standing, facing front, flat
+# background) into stills/courier.png and the Quaternius UAL Godot Standard
+# GLB into anims/ual.glb; if `go` reports no mannequin profile for it, run:
+#   sprite-pipeline mannequin-profile anims/ual.glb
 sprite-pipeline go project.yaml --dry-run   # prints the plan, runs nothing
-sprite-pipeline go project.yaml             # prepares the still, makes the four other direction edits
+sprite-pipeline go project.yaml             # anchors the still, makes the four other direction edits
 # -> writes out/courier/refs-sheet.png and stops for review
 # look at the sheet, then:
 sprite-pipeline approve project.yaml courier
@@ -119,14 +139,14 @@ sprite-pipeline go project.yaml             # drive, animate, key, loop, pixel, 
 
 `go` writes, under `<project dir>/out/<character>/`:
 
-- `master/` — the prepared still, the four direction stills and the keyed SE still (the palette reference).
-- `refs-sheet.png` — the direction stills side by side, one per direction (the review artefact).
+- `master/` — the anchored master `s.png` (832×1024 on flat chroma green), the four direction stills (`se.png`, `e.png`, …), the keyed master `s.keyed.png` (the palette reference) and `source.sha256` (the fingerprint of the source still; changing the still rebuilds the character).
+- `refs-sheet.png` — the direction stills side by side, one per direction, each label carrying its size ratio (the review artefact).
 - `refs.approved` — written by `approve`; holds the hash of the direction stills. A change to any of them (or a `--reroll`) invalidates it and `go` stops at the sheet again.
 - `clips/<animation>-<dir>.mp4` — the animated clips.
 - `loops/<animation>-<dir>/cycle/` — the looped frames.
 - `sprites/` — the pixel frames (one per animation × direction), `atlas.png`, `sprite_frames.tres` (Godot 4 `SpriteFrames`, one animation per `naming` entry) and `contact-sheet.png`.
 
-Narrow a run with `--characters a,b`, `--animations run,punch`, `--dirs s,se`, `--stage drive|animate|key|loop|pixel|export`; reroll one still with `--reroll <char>:<dir>=<seed>`; skip the review stop for one run with `--no-stop`; rerun stages whose output exists with `--force`; preview with `--dry-run`. A failed (animation, direction) is logged and the run continues; the summary ends with exit code 1 when anything failed. Exit code 0 means done or stopped for review (the stop prints the sheet path and the approve command); exit code 2 means the project file is invalid.
+Narrow a run with `--characters a,b`, `--animations run,punch`, `--dirs s,se`, `--stage drive|animate|key|loop|pixel|export`; reroll one still with `--reroll <char>:<dir>=<seed>`; skip the review stop for one run with `--no-stop`; rerun stages whose output exists with `--force`; preview with `--dry-run`. A failed (animation, direction) is logged and the run continues; the summary ends with exit code 1 when anything failed. Exit code 0 means done or stopped for review (the stop prints the sheet path and the approve command); exit code 2 means the project file is invalid (including a still that is not a standing figure and a source GLB with no mannequin profile).
 
 ## Platforms
 
