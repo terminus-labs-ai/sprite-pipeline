@@ -16,10 +16,13 @@ otherwise it raises FigureError naming the file and the failed rule (`too
 wide`, `too small` or `feet not at the bottom`). A standing figure yields None.
 
 Profiles are packaged data (`data/mannequin_profiles.json`, keyed by the
-sha256 of the source GLB bytes); a user file with the same schema, merged
-last per hash, lives in the host home (`config.home() /
-"mannequin_profiles.json"`) and its path is injectable for tests. An absent
-or invalid user file changes nothing.
+sha256 of the source GLB bytes). An entry holds `glb_name`, `resolution`
+(704) and `dirs`: `body_h` and `floor_y` per isometric direction s, se, e,
+ne, n (amendment 10), read as `profile["dirs"][d]["body_h"]`; the project
+load gate (FR 4) rejects an entry lacking a generated direction. A user file
+with the same schema, merged last per hash, lives in the host home
+(`config.home() / "mannequin_profiles.json"`) and its path is injectable for
+tests. An absent or invalid user file changes nothing.
 """
 import hashlib
 import json

@@ -380,9 +380,20 @@ def load_project(path, views_dir=VIEWS_DIR, profiles=None):
         # FR 4 amendment 3: every source GLB needs a mannequin profile (FR 14)
         # to anchor the stills it drives; the error prints the sha256 prefix and
         # the command that measures one
-        if metrics.glb_sha256(src_p) not in profiles:
+        digest = metrics.glb_sha256(src_p)
+        if digest not in profiles:
             raise ProjectError(f"{path.name}: animations[{i}].source: no mannequin profile "
-                               f"for {src_p.name} (sha256 {metrics.glb_sha256(src_p)[:16]}…); "
+                               f"for {src_p.name} (sha256 {digest[:16]}…); "
+                               f"run: sprite-pipeline mannequin-profile {src_p}")
+        # FR 4 amendment 10: the profile carries `dirs` for every generated
+        # direction (a flat pre-`dirs` profile lacks them all)
+        prof_dirs = profiles[digest].get("dirs")
+        missing = [x for x in generate
+                   if not isinstance(prof_dirs, dict) or x not in prof_dirs]
+        if missing:
+            raise ProjectError(f"{path.name}: animations[{i}].source: the mannequin profile "
+                               f"for {src_p.name} (sha256 {digest[:16]}…) has no dirs entry "
+                               f"for {', '.join(missing)}; "
                                f"run: sprite-pipeline mannequin-profile {src_p}")
         state = a.get("state") or "attack"
         if state not in VALID_STATES:

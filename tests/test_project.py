@@ -2,6 +2,7 @@
 the drive cache key (FR 10) and the example project carrying the motion library
 (FR 13 / AC10). No network, GPU, Blender or ComfyUI."""
 import dataclasses
+import hashlib
 import shutil
 import subprocess
 import tempfile
@@ -371,13 +372,20 @@ class TestFaceDirs(unittest.TestCase):
             proj = project.load_project(write_project(t, text))
             self.assertEqual(proj.characters[0].face_dirs, ["s", "se", "e"])
 
+    # a stub GLB profile carrying sw and w too: the FR 4 gate (amendment 10)
+    # needs a dirs entry for every generated direction
+    SW_W_PROFILES = {hashlib.sha256(ASSET).hexdigest(): mannequins.profile(
+        {**mannequins.DIRS, "sw": mannequins.DIRS["se"], "w": mannequins.DIRS["e"]},
+        glb_name="ual.glb")}
+
     def test_r2_default_follows_generate_order_including_sw_w(self):
         # generate [w, sw, e, se, s]: the default is the preset members that
         # are generated, listed in generate order (not preset order)
         with tempfile.TemporaryDirectory() as t:
             text = base_project(generate="[w, sw, e, se, s]", mirror="{}",
                                 animation_dirs="[w]")
-            proj = project.load_project(write_project(t, text))
+            proj = project.load_project(write_project(t, text),
+                                        profiles=self.SW_W_PROFILES)
             self.assertEqual(proj.characters[0].face_dirs, ["w", "sw", "e", "se", "s"])
 
     def test_r2_all_five_face_dirs_when_sw_w_are_generated(self):
@@ -385,7 +393,8 @@ class TestFaceDirs(unittest.TestCase):
         # are in the default only because they are generated
         with tempfile.TemporaryDirectory() as t:
             text = base_project(generate="[s, se, e, sw, w]", mirror="{}")
-            proj = project.load_project(write_project(t, text))
+            proj = project.load_project(write_project(t, text),
+                                        profiles=self.SW_W_PROFILES)
             self.assertEqual(proj.characters[0].face_dirs, ["s", "se", "e", "sw", "w"])
 
     def test_r2_explicit_face_dirs_kept_as_given(self):

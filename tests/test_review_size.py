@@ -3,8 +3,8 @@ by amendments 3 and 9, FR 6 measurement).
 
 With ComfyUI faked at subprocess.run, the faked edit writes synthetic
 direction stills on the 832x1024 edit canvas whose figures measure a chosen
-ratio of the anchor profile's target (the stub mannequin's body_h 324 at
-frame_size 704, on the edit canvas 324 x 832 / 704 = 383 px). At the stop,
+ratio of the anchor profile's target (the stub mannequin's `s` body_h 331
+at frame_size 704, on the edit canvas 331 x 832 / 704 = 391 px). At the stop,
 `go` logs one `[courier/<dir>] ref size <ratio>x` line per direction, the
 refs sheet labels append the two-decimal ratio and `CHECK` below 0.85 or
 above 1.15, and `approve` succeeds whatever the ratios — the report never
@@ -27,8 +27,8 @@ from test_review import GEN_DIRS, ReviewFixture
 from sprite_pipeline import stages, stills
 
 # the anchor target on the 832x1024 canvas for the stub profile at 704
-# (FR 8, amendment 9): 324 * 832 / 704 = 382.9 px (the spec's "383 px target")
-# — stills.body_target(704, profile)
+# (FR 8, amendments 9 and 10): 331 * 832 / 704 = 391.2 px (the spec's "391
+# px target") — stills.body_target(704, profile, "s")
 TARGET = mannequins.BODY_H * 832 / 704
 # AC16's synthetic direction stills; ne sits below the band to cover the low
 # side of the CHECK rule
@@ -46,7 +46,7 @@ def direction_still(path, ratio, marker=None):
     im = mannequins.pose_frame(832, 1024, body_h=round(ratio * TARGET),
                                body_w=200, feet_from_bottom=10)
     if marker is not None:
-        # inside the figure: a 1.00 figure spans rows 631-1013, x 316-515
+        # inside the figure: a 1.00 figure spans rows 623-1013, x 316-515
         im.paste(marker, (400, 800, 420, 820))
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     im.save(path)
@@ -103,12 +103,12 @@ class TestSizeLogLines(SizeFixture):
         # the report sits at the stop: it precedes the stop verdict
         self.assert_stopped_with_approve_command(code, out)
 
-    def test_r1_ratio_target_is_383_at_704(self):
-        """FR 8 (amendment 9): the ratio's denominator is FR 6's
-        body_h x 832 / frame_size — 382.9 at 704 for the stub mannequin."""
-        prof = {"glb_name": "test.glb", "resolution": 704,
-                "body_h": mannequins.BODY_H, "floor_y": mannequins.FLOOR_Y}
-        self.assertAlmostEqual(stills.body_target(704, prof), 324 * 832 / 704)
+    def test_r1_ratio_target_is_391_at_704(self):
+        """FR 8 (amendments 9 and 10): the ratio's denominator is FR 6's
+        dirs.s.body_h x 832 / frame_size — 391.2 at 704 for the stub
+        mannequin."""
+        self.assertAlmostEqual(stills.body_target(704, mannequins.profile(), "s"),
+                               331 * 832 / 704)
 
     def test_r1_band_edges_are_inside(self):
         # 0.85 and 1.15 are inside the band; just past either prints CHECK

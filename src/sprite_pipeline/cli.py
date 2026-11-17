@@ -15,9 +15,9 @@ skip-if-exists unless --force or --reroll names it. `approve` writes
 refs.approved (hash of the direction stills); the review stop (FR 8) keeps the
 character's animation stages away until that hash matches, --no-stop skips the
 stop for one run. `mannequin-profile` renders a GLB's A_TPose at 704 with the
-drive camera, measures it and writes its profile to the host profile file
-(FR 14). Exit codes: 0 done or stopped for review, 1 a stage failed, 2 the
-project file is invalid.
+drive camera facing each of s, se, e, ne, n, measures each and writes its
+per-direction profile to the host profile file (FR 14). Exit codes: 0 done or
+stopped for review, 1 a stage failed, 2 the project file is invalid.
 """
 import argparse
 from pathlib import Path
@@ -196,7 +196,7 @@ def run_stills(ctx, turn, char, reroll, force, log, out):
             if forced(master):
                 print(f"[{char}] still preparation: anchor {cs.still} -> {master}",
                       file=out)
-                stills.anchor(cs.still, master, p.sprite.frame_size, profile)
+                stills.anchor(cs.still, master, p.sprite.frame_size, profile, sd)
             if force or reroll.get(sd) is not None or not keyed.is_file():
                 cmds = stages.plan_cutout(master, ctx.master(char))
                 ok = run_cmds(ctx, cmds, log, out) and ok
@@ -289,11 +289,11 @@ def cmd_approve(args, out, **load_kwargs):
     return 0
 
 
-def render_mannequin(glb):
+def render_mannequin(glb, d="s"):
     """Render the GLB's `A_TPose` at the drive resolution 704 with the drive
-    camera (facing `s`, elevation 45°, ortho 3.0 — the same camera and scene
-    the drive plan uses). Returns the path of the rendered frame. Needs
-    Blender and the host config (FR 14)."""
+    camera facing `d` (`stages.FACING[d]`, elevation 45°, ortho 3.0 — the
+    same camera and scene the drive plan uses). Returns the path of the
+    rendered frame. Needs Blender and the host config (FR 14)."""
     from PIL import Image
 
     # a stand-in project for the drive plan: the drive resolution, the
@@ -317,17 +317,18 @@ def render_mannequin(glb):
     # ComfyUI's input/) is dropped here — the render keeps its own frames and
     # there is no upload. When no frame lands, the glob below finds nothing
     # and this raises SystemExit, never a traceback.
-    frames = ctx.frames_dir("mannequin", anim, "s")
-    cmds = [(c, k) for c, k in ctx.plan_pair("mannequin", anim, "s", "drive")
+    frames = ctx.frames_dir("mannequin", anim, d)
+    cmds = [(c, k) for c, k in ctx.plan_pair("mannequin", anim, d, "drive")
             if k != "copy-drive"]
     log = []
     if not run_cmds(ctx, cmds, log):
-        raise SystemExit(f"mannequin-profile: rendering {glb} failed")
+        raise SystemExit(f"mannequin-profile: rendering {glb} facing {d} failed")
     shots = sorted(frames.glob("f*.png"))
     if not shots:
         # the fake renderer wrote nothing where the plan pointed: nothing to
         # measure, so the render failed
-        raise SystemExit(f"mannequin-profile: no render of {glb} landed in {frames}")
+        raise SystemExit(f"mannequin-profile: no render of {glb} facing {d} "
+                         f"landed in {frames}")
     # a drive is many frames; the profile's pose is the first held frame
     img = Image.open(shots[0])
     shot = frames / "A_TPose.png"
@@ -336,20 +337,23 @@ def render_mannequin(glb):
 
 
 def cmd_mannequin_profile(args, out):
-    """`sprite-pipeline mannequin-profile <glb>` (FR 14, amendment 4): render
-    the GLB's A_TPose at 704 with the drive camera, measure it and append the
-    entry to the host profile file, replacing an existing entry for the same
-    hash. Prints the measured JSON."""
+    """`sprite-pipeline mannequin-profile <glb>` (FR 14, amendments 4 and 10):
+    render the GLB's A_TPose at 704 with the drive camera facing each of s,
+    se, e, ne, n, measure each and append one entry with `dirs` to the host
+    profile file, replacing an existing entry for the same hash. Prints the
+    measured JSON. Every direction is rendered before anything is written: a
+    failed render leaves the user file unchanged."""
     import json
 
     glb = Path(args["glb"])
     if not glb.is_file():
         print(f"mannequin-profile: {glb} not found", file=sys.stderr)
         return 2
-    shot = render_mannequin(glb)
-    m = metrics.measure(shot)
-    entry = {"glb_name": glb.name, "resolution": metrics.DRIVE_RES,
-             "body_h": m["body_h"], "floor_y": m["floor_y"]}
+    dirs = {}
+    for d in stages.FACING:
+        m = metrics.measure(render_mannequin(glb, d))
+        dirs[d] = {"body_h": m["body_h"], "floor_y": m["floor_y"]}
+    entry = {"glb_name": glb.name, "resolution": metrics.DRIVE_RES, "dirs": dirs}
     digest = metrics.glb_sha256(glb)
     path = project.user_profiles_path()
     try:
@@ -395,8 +399,9 @@ def main(argv=None, out=None, **load_kwargs):
     p = sub.add_parser("approve", help="approve a character's direction stills")
     p.add_argument("approve_args", nargs=argparse.REMAINDER)
     mp = sub.add_parser("mannequin-profile",
-                        help="render + measure a GLB's A_TPose at 704 and append "
-                             "its mannequin profile to the host profile file")
+                        help="render + measure a GLB's A_TPose at 704 in the five "
+                             "isometric directions and append its mannequin "
+                             "profile to the host profile file")
     mp.add_argument("glb", help="path to the source .glb")
     a = ap.parse_args(argv)
     args = vars(a)

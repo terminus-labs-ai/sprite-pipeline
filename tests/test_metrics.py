@@ -1,8 +1,9 @@
 """Tests for the mannequin metrics (spec AC14, FR 6 and FR 14).
 
 Measurement (FR 14): the figure is the bounding box of the pixels differing
-from the top-left corner colour by more than 40 in any channel; the committed
-704-res A_TPose fixtures measure the packaged profile values. The standing
+from the top-left corner colour by more than 40 in any channel; the ten
+committed 704-res A_TPose fixtures (two GLBs x five directions) measure the
+packaged per-direction `dirs` values (amendment 10). The standing
 check (FR 6) accepts a standing figure and rejects a lying, too small or
 floating figure with the named reason. Profile loading (FR 14) merges the
 user file over the packaged profiles per hash, last-write-wins.
@@ -20,8 +21,21 @@ from PIL import Image
 from sprite_pipeline import metrics
 
 FIXTURES = Path(__file__).parent / "fixtures"
-FEMALE_FIXTURE = FIXTURES / "mannequin_tpose_female_s_704.png"
-MALE_FIXTURE = FIXTURES / "mannequin_tpose_male_s_704.png"
+# the isometric directions a profile carries (FR 14, amendment 10)
+DIRS = ("s", "se", "e", "ne", "n")
+# FR 14's measured values, stated independently of the packaged file:
+# (body_h, floor_y) per GLB and direction at 704
+FR14 = {
+    "ual-female.glb": {"s": (331, 524), "se": (367, 532), "e": (399, 533),
+                       "ne": (354, 534), "n": (306, 524)},
+    "ual.glb": {"s": (354, 536), "se": (394, 539), "e": (420, 528),
+                "ne": (363, 526), "n": (308, 518)},
+}
+
+
+def _dirs(body_h, floor_y):
+    """A user-file `dirs` map with every direction at one geometry."""
+    return {d: {"body_h": body_h, "floor_y": floor_y} for d in DIRS}
 
 # the fixture's background colour (top-left pixel of both committed renders)
 CORNER = (95, 189, 63)
@@ -54,68 +68,59 @@ def _save(im, path):
 
 class TestMeasure(unittest.TestCase):
     """AC14: corner-colour measurement (difference > 40) on the committed
-    fixtures and a synthetic drive-rule frame (FR 14)."""
+    per-direction fixtures and a synthetic drive-rule frame (FR 14)."""
 
-    def test_r1_female_fixture_matches_packaged_profile(self):
-        """AC14-r1: the female 704 fixture measures 324 / 525 / 352 and equals
-        the packaged ual-female.glb profile."""
-        m = metrics.measure(FEMALE_FIXTURE)
-        self.assertEqual(m["body_h"], 324)
-        self.assertAlmostEqual(m["floor_y"], 525, delta=2)
-        self.assertAlmostEqual(m["centre_x"], 352, delta=1)
+    def _assert_fixtures_match(self, sex, glb_name):
+        """Each of the GLB's five fixtures measures the FR 14 value of its
+        direction +/- 2, and the packaged `dirs` entry holds exactly that
+        value."""
         pkg = json.loads(metrics.PACKAGED_PROFILES.read_text())["profiles"]
-        female = next(p for p in pkg.values() if p["glb_name"] == "ual-female.glb")
-        self.assertEqual(female["body_h"], m["body_h"])
-        self.assertAlmostEqual(female["floor_y"], m["floor_y"], delta=2)
-        self.assertEqual(female["resolution"], 704)
+        packaged = next(p for p in pkg.values() if p["glb_name"] == glb_name)
+        self.assertEqual(packaged["resolution"], 704)
+        self.assertEqual(sorted(packaged["dirs"]), sorted(DIRS))
+        for d in DIRS:
+            want_h, want_floor = FR14[glb_name][d]
+            with self.subTest(glb=glb_name, d=d):
+                m = metrics.measure(FIXTURES / f"mannequin_tpose_{sex}_{d}_704.png")
+                self.assertAlmostEqual(m["body_h"], want_h, delta=2)
+                self.assertAlmostEqual(m["floor_y"], want_floor, delta=2)
+                self.assertEqual(packaged["dirs"][d],
+                                 {"body_h": want_h, "floor_y": want_floor})
 
-    def test_r1_user_entry_replaces_packaged(self):
-        """AC14-r8: a user entry for a known hash replaces the packaged entry
-        (last-write-wins): the female profile's body_h becomes the user value
-        while the rest of the profile is intact."""
-        with tempfile.TemporaryDirectory() as tmp:
-            user = Path(tmp) / "mannequin_profiles.json"
-            pkg = json.loads(metrics.PACKAGED_PROFILES.read_text())["profiles"]
-            known = next(k for k, p in pkg.items() if p["glb_name"] == "ual-female.glb")
-            user.write_text(json.dumps({"profiles": {
-                known: {"glb_name": "ual-female.glb", "resolution": 704,
-                        "body_h": 999, "floor_y": 500}}}))
-            merged = metrics.load_profiles(user_path=user)[known]
-            self.assertEqual(merged["body_h"], 999)
-            self.assertEqual(merged["glb_name"], "ual-female.glb")
+    def test_ac14_r1_female_fixtures_match_packaged_dirs(self):
+        """AC14-r1: the five female 704 fixtures measure the packaged
+        ual-female.glb `dirs` entries (s 331 / 524 ... n 306 / 524) +/- 2."""
+        self._assert_fixtures_match("female", "ual-female.glb")
 
-    def test_r2_male_fixture_matches_packaged_profile(self):
-        """AC14-r2: the male 704 fixture measures 345 / 538 and equals the
-        packaged ual.glb profile."""
-        m = metrics.measure(MALE_FIXTURE)
-        self.assertEqual(m["body_h"], 345)
-        self.assertAlmostEqual(m["floor_y"], 538, delta=2)
+    def test_ac14_r1_male_fixtures_match_packaged_dirs(self):
+        """AC14-r1: the five male 704 fixtures measure the packaged ual.glb
+        `dirs` entries (s 354 / 536 ... n 308 / 518) +/- 2, read through the
+        loader with no user file."""
+        self._assert_fixtures_match("male", "ual.glb")
         profiles = metrics.load_profiles(user_path=Path("/nonexistent-mannequins"))
-        profile = profiles[next(k for k, p in profiles.items()
-                                if p["glb_name"] == "ual.glb")]
-        self.assertEqual(profile["body_h"], m["body_h"])
-        self.assertAlmostEqual(profile["floor_y"], m["floor_y"], delta=2)
+        male = next(p for p in profiles.values() if p["glb_name"] == "ual.glb")
+        self.assertEqual(male["dirs"]["s"], {"body_h": 354, "floor_y": 536})
 
-    def test_r3_synthetic_1152_drive_rule(self):
-        """AC14-r3: a 1152 frame built to the drive rule (same 324 px body,
-        everything shifted +224) measures the same body height and floor 749."""
+    def test_ac14_r2_synthetic_1152_drive_rule(self):
+        """AC14-r2: a 1152 frame built to the drive rule from the female `s`
+        render (the 704 frame pasted with everything shifted +224, the body at
+        its own pixel size) measures body 331 +/- 2 and floor 748 +/- 2."""
+        src = Image.open(FIXTURES / "mannequin_tpose_female_s_704.png").convert("RGB")
         with tempfile.TemporaryDirectory() as tmp:
-            # the female body's measured geometry on 704: 324 px tall, 392 px
-            # wide, bottom row 524, centre x 351.5. Drive rule: the body keeps
-            # its pixel size and the floor line shifts (1152-704)//2 = 224.
-            im = _figure_frame(1152, BODY_H, 392, 524 + 224, centre_x=351)
+            im = Image.new("RGB", (1152, 1152), src.getpixel((0, 0)))
+            im.paste(src, ((1152 - 704) // 2, (1152 - 704) // 2))
             p = _save(im, Path(tmp) / "frame1152.png")
             m = metrics.measure(p)
-            self.assertEqual(m["body_h"], 324)
-            self.assertAlmostEqual(m["floor_y"], 749, delta=2)
+            self.assertAlmostEqual(m["body_h"], 331, delta=2)
+            self.assertAlmostEqual(m["floor_y"], 748, delta=2)
 
-    def test_r3_floor_for_canvas(self):
-        """AC14-r3: the drive-rule floor conversion — body size unchanged,
-        floor shifted (canvas-704)//2, centre on the canvas."""
-        self.assertEqual(metrics.floor_for_canvas(525, 1152), 525 + 224)
-        self.assertEqual(metrics.floor_for_canvas(525, 704), 525)
-        self.assertEqual(metrics.floor_for_canvas(538, 1152), 538 + 224)
-        self.assertEqual(metrics.floor_for_canvas(525, 1408), 525 + 352)
+    def test_ac14_r2_floor_for_canvas(self):
+        """AC14-r2: the drive-rule floor conversion — body size unchanged,
+        floor shifted (canvas-704)//2."""
+        self.assertEqual(metrics.floor_for_canvas(524, 1152), 748)
+        self.assertEqual(metrics.floor_for_canvas(524, 704), 524)
+        self.assertEqual(metrics.floor_for_canvas(536, 1152), 760)
+        self.assertEqual(metrics.floor_for_canvas(524, 1408), 876)
 
     def test_corner_difference_threshold(self):
         """A pixel differing from the corner by <= 40 in every channel is not
@@ -142,33 +147,33 @@ class TestCheckStanding(unittest.TestCase):
             p = _save(im, Path(tmp) / "fig.png")
             return metrics.check_standing(p)
 
-    def test_r4_standing_figure_accepted(self):
-        """AC14-r4: a standing figure (324x200 on 704, feet near the bottom)
+    def test_ac14_r3_standing_figure_accepted(self):
+        """AC14-r3: a standing figure (324x200 on 704, feet near the bottom)
         is accepted."""
         self.assertIsNone(self._check(_figure_frame(704, BODY_H, BODY_W, 672)))
 
-    def test_r5_lying_figure_rejected(self):
-        """AC14-r5: a lying figure (wider than tall, but over the height
+    def test_ac14_r3_lying_figure_rejected(self):
+        """AC14-r3: a lying figure (wider than tall, but over the height
         minimum so `too wide` is the rule that fails) is rejected `too wide`."""
         with self.assertRaises(metrics.FigureError) as ctx:
             self._check(_figure_frame(704, 200, 500, 672))  # 200 >= 140.8, 200 < 500
         self.assertEqual(ctx.exception.reason, "too wide")
 
-    def test_r6_small_figure_rejected(self):
-        """AC14-r6: a figure under 20% of the frame height is rejected
+    def test_ac14_r3_small_figure_rejected(self):
+        """AC14-r3: a figure under 20% of the frame height is rejected
         `too small`."""
         with self.assertRaises(metrics.FigureError) as ctx:
             self._check(_figure_frame(704, 139, 100, 672))  # 139 < 0.2 * 704 = 140.8
         self.assertEqual(ctx.exception.reason, "too small")
 
-    def test_r7_floating_figure_rejected(self):
-        """AC14-r7: a figure whose bottom is above the lower 20% is rejected
+    def test_ac14_r3_floating_figure_rejected(self):
+        """AC14-r3: a figure whose bottom is above the lower 20% is rejected
         `feet not at the bottom`."""
         with self.assertRaises(metrics.FigureError) as ctx:
             self._check(_figure_frame(704, BODY_H, BODY_W, 500))  # 500 < 0.8 * 704 = 563.2
         self.assertEqual(ctx.exception.reason, "feet not at the bottom")
 
-    def test_rejections_are_isolated(self):
+    def test_ac14_r3_rejections_are_isolated(self):
         """Each rejection names exactly one rule: the too-small, too-wide and
         floating figures each satisfy the other two rules, so a bug that
         reports the wrong reason (or a threshold that misclassifies) fails
@@ -194,8 +199,8 @@ class TestLoadProfiles(unittest.TestCase):
     def _packaged(self):
         return json.loads(metrics.PACKAGED_PROFILES.read_text())["profiles"]
 
-    def test_r8_merge_last_write_wins(self):
-        """AC14-r8: a user entry for a known hash replaces the packaged entry
+    def test_ac14_r4_merge_last_write_wins(self):
+        """AC14-r4: a user entry for a known hash replaces the packaged entry
         and unrelated packaged entries survive."""
         with tempfile.TemporaryDirectory() as tmp:
             user = Path(tmp) / "mannequin_profiles.json"
@@ -204,25 +209,40 @@ class TestLoadProfiles(unittest.TestCase):
             other = next(k for k in self._packaged() if k != known)
             user.write_text(json.dumps({"profiles": {
                 known: {"glb_name": "ual-female.glb", "resolution": 704,
-                        "body_h": 320, "floor_y": 500},
+                        "dirs": _dirs(320, 500)},
                 "e" * 64: {"glb_name": "new.glb", "resolution": 704,
-                           "body_h": 100, "floor_y": 200},
+                           "dirs": _dirs(100, 200)},
             }}))
             profiles = metrics.load_profiles(user_path=user)
-            # user entry wins over the packaged one, last-write-wins
-            self.assertEqual(profiles[known]["body_h"], 320)
-            self.assertEqual(profiles[known]["floor_y"], 500)
+            # user entry wins over the packaged one, last-write-wins: the
+            # whole entry is replaced, every direction included
+            self.assertEqual(profiles[known]["dirs"], _dirs(320, 500))
             # the unrelated packaged entry survives
             self.assertEqual(profiles[other], self._packaged()[other])
             # the user's new hash appears
             self.assertEqual(profiles["e" * 64]["glb_name"], "new.glb")
 
-    def test_r8_absent_user_file_changes_nothing(self):
+    def test_ac14_r4_user_entry_replaces_packaged(self):
+        """AC14-r4: a user entry for a known hash replaces the packaged entry
+        (last-write-wins): the female profile's `dirs.s.body_h` becomes the
+        user value while the rest of the entry is intact."""
+        with tempfile.TemporaryDirectory() as tmp:
+            user = Path(tmp) / "mannequin_profiles.json"
+            known = next(k for k, p in self._packaged().items()
+                         if p["glb_name"] == "ual-female.glb")
+            user.write_text(json.dumps({"profiles": {
+                known: {"glb_name": "ual-female.glb", "resolution": 704,
+                        "dirs": _dirs(999, 500)}}}))
+            merged = metrics.load_profiles(user_path=user)[known]
+            self.assertEqual(merged["dirs"]["s"]["body_h"], 999)
+            self.assertEqual(merged["glb_name"], "ual-female.glb")
+
+    def test_ac14_r4_absent_user_file_changes_nothing(self):
         """An absent user file leaves the packaged profiles unchanged."""
         profiles = metrics.load_profiles(user_path=Path("/nonexistent-mannequins"))
         self.assertEqual(profiles, self._packaged())
 
-    def test_r8_invalid_user_file_changes_nothing(self):
+    def test_ac14_r4_invalid_user_file_changes_nothing(self):
         """An invalid (unparseable / non-mapping) user file leaves the
         packaged profiles unchanged."""
         with tempfile.TemporaryDirectory() as tmp:
@@ -244,7 +264,7 @@ class TestLoadProfiles(unittest.TestCase):
             tmp = Path(tmp)
             user = tmp / "mannequin_profiles.json"
             entry = {"glb_name": "synthetic.glb", "resolution": 704,
-                     "body_h": 333, "floor_y": 520}
+                     "dirs": _dirs(333, 520)}
             user.write_text(json.dumps({"profiles": {digest: entry}}))
             glb = tmp / "synthetic.glb"
             glb.write_bytes(payload)

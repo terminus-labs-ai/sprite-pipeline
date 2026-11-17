@@ -1,16 +1,18 @@
 """Anchored still preparation, direction-edit prompts and the review sheet
-(spec FR 6-8, amendments 3 and 9).
+(spec FR 6-8, amendments 3, 9 and 10).
 
 A character's still must be an A- or T-pose standing figure on a flat
 background. `check` (FR 6) measures it with `metrics` and rejects a figure that
 does not stand, naming the file and the failed rule (`too wide`, `too small` or
 `feet not at the bottom`).
 
-`anchor` then prepares the master: the still is scaled uniformly so its
-measured body height equals the mannequin profile's target on the 832x1024 edit
-canvas — `body_h * 832 / frame_size` px (382.9 at the default 704) — with its
-feet pinned to floor `floor_y(frame_size) * 832 / frame_size + 96` (716.45 at
-704) and the figure centred horizontally (x 416). Every other pixel is flat
+`anchor` then prepares the master against the anchor profile's `s`
+direction (FR 14 `dirs`): the still is scaled uniformly so its measured body
+height equals the target on the 832x1024 edit canvas — `dirs.s.body_h * 832 /
+frame_size` px (391.2 for the packaged ual-female.glb profile at 704) — with
+its feet pinned to floor `floor_y(frame_size) * 832 / frame_size + 96` (715.27
+there) and the figure centred horizontally (x 416). No mannequin is a code
+default: the profile and direction are always passed in. Every other pixel is flat
 chroma green (CHROMA_GREEN). The 832 and 96 are the packaged animate
 workflow's reference mapping: it centre-crops the 832x1024 still to 832x832
 (rows 96-927, CROP_Y = (CANVAS_H - CANVAS_W) // 2) and scales it by
@@ -77,40 +79,37 @@ def anchor_floor(floor_y, frame_size):
     FR 14's drive rule shifts the 704-res floor by
     `(max(frame_size, 704) - 704) // 2`, and the animate workflow's mapping
     (centre crop from row CROP_Y, then scale by frame_size / 832) is undone:
-    x 832 / frame_size + 96 — 525 -> 716.45 at 704, 525 -> 685 -> 652.56 at
+    x 832 / frame_size + 96 — 524 -> 715.27 at 704, 524 -> 684 -> 651.75 at
     1024."""
     canvas = max(int(frame_size), DRIVE_RES)
     return (metrics.floor_for_canvas(floor_y, canvas) * CANVAS_W / int(frame_size)
             + CROP_Y)
 
 
-def body_target(frame_size, profile=None):
-    """FR 6 / FR 8: the body height in px the anchored master measures on the
-    832x1024 edit canvas — the profile's `body_h` at the drive resolution
-    scaled by 832 / frame_size, the inverse of the animate workflow's
-    832 -> frame_size downscale (324 -> 382.9 at frame_size 704, 263.25 at
-    1024)."""
-    if profile is None:
-        profile = next(iter(metrics.load_profiles().values()))
-    return profile["body_h"] * CANVAS_W / frame_size
+def body_target(frame_size, profile, d):
+    """FR 6 / FR 8: the body height in px a figure facing `d` measures on the
+    832x1024 edit canvas — the profile's `dirs[d].body_h` at the drive
+    resolution scaled by 832 / frame_size, the inverse of the animate
+    workflow's 832 -> frame_size downscale (s 331 -> 391.2 at frame_size 704,
+    268.9 at 1024). No mannequin is a code default: the profile is required."""
+    return profile["dirs"][d]["body_h"] * CANVAS_W / frame_size
 
 
-def floor_line(frame_size, profile=None):
-    """FR 6: the floor row in px of the anchored master on the 832x1024 edit
-    canvas — `anchor_floor` of the profile's 704-res `floor_y`
-    (525 -> 716.45 at frame_size 704, 525 -> 652.56 at 1024)."""
-    if profile is None:
-        profile = next(iter(metrics.load_profiles().values()))
-    return anchor_floor(profile["floor_y"], frame_size)
+def floor_line(frame_size, profile, d):
+    """FR 6: the floor row in px of a figure facing `d` on the 832x1024 edit
+    canvas — `anchor_floor` of the profile's 704-res `dirs[d].floor_y`
+    (s 524 -> 715.27 at frame_size 704, 524 -> 651.75 at 1024)."""
+    return anchor_floor(profile["dirs"][d]["floor_y"], frame_size)
 
 
-def anchor(src, dst, frame_size, profile):
-    """FR 6: prepare the anchored master of a standing-figure still.
+def anchor(src, dst, frame_size, profile, d):
+    """FR 6: prepare the anchored master of a standing-figure still against
+    the profile's direction `d` (`s` for the master).
 
-    The still is scaled uniformly by `body_target(frame_size, profile) /
+    The still is scaled uniformly by `body_target(frame_size, profile, d) /
     measured body height` and its figure pasted on an 832x1024 canvas filled
-    with CHROMA_GREEN: its feet row lands on `floor_line(frame_size, profile)`
-    and its measured centre x lands on the canvas centre (x 416). Returns
+    with CHROMA_GREEN: its feet row lands on `floor_line(frame_size, profile,
+    d)` and its measured centre x lands on the canvas centre (x 416). Returns
     `dst`. Raises metrics.FigureError when the still is not a standing figure
     (or cannot be read as an image at all).
     """
@@ -126,7 +125,7 @@ def anchor(src, dst, frame_size, profile):
         # FigureError naming the file, never a traceback
         raise metrics.FigureError(str(src), "not a readable image") from e
     im = Image.open(src).convert("RGB")
-    scale = body_target(frame_size, profile) / m["body_h"]
+    scale = body_target(frame_size, profile, d) / m["body_h"]
     new_w = max(1, round(im.width * scale))
     new_h = max(1, round(im.height * scale))
     # the whole source frame scales as one image, then the figure — every
@@ -145,8 +144,7 @@ def anchor(src, dst, frame_size, profile):
     bx0, bx1 = int(xs.min()), int(xs.max()) + 1
     by0, by1 = int(ys.min()), int(ys.max()) + 1
     left = CANVAS_W // 2 - round((bx0 + bx1 - 1) / 2)
-    floor = anchor_floor(profile["floor_y"], frame_size)
-    top = round(floor + 1 - by1)
+    top = round(floor_line(frame_size, profile, d) + 1 - by1)
     canvas = Image.new("RGB", STILL_SIZE, CHROMA_GREEN)
     car = numpy.array(canvas)  # writable copy of the flat chroma canvas
     # clip the paste rect to the canvas: only figure pixels move, the

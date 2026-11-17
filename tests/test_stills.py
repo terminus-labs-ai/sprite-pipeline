@@ -8,10 +8,10 @@ other pixel flat chroma green (31, 203, 25). There is no 1280 canvas
 anymore.
 
 The expected numbers are stated independently of production code, as the
-literal FR 6 formula over the test mannequin profile (body_h 324, floor_y
-525 at the 704 drive resolution), each +/- 1: 324 x 832 / 704 = 382.9 and
-(525 + (704 - 704) // 2) x 832 / 704 + 96 = 716.45 (AC15's 383 / 716,
-amendment 9).
+literal FR 6 formula over the test mannequin profile's `s` direction (body_h
+331, floor_y 524 at the 704 drive resolution), each +/- 1: 331 x 832 / 704 =
+391.2 and (524 + (704 - 704) // 2) x 832 / 704 + 96 = 715.27 (AC15's
+391 / 715, amendment 10).
 """
 import tempfile
 import unittest
@@ -19,22 +19,23 @@ from pathlib import Path
 
 from PIL import Image
 
+import mannequins
 from sprite_pipeline import metrics, stills
 
 # the flat chroma green of an anchored master (FR 6)
 CHROMA = (31, 203, 25)
 # the test mannequin profile (tests/mannequins.py's canonical stub): the
-# packaged ual-female.glb geometry at the 704 drive resolution
-PROFILE = {"glb_name": "test.glb", "resolution": 704, "body_h": 324,
-           "floor_y": 525}
+# packaged ual-female.glb per-direction geometry at the 704 drive resolution;
+# the master anchors against its `s` entry (331 / 524)
+PROFILE = mannequins.profile()
 
 # a standing-figure source: a flat background with a figure 300 px tall x
 # 200 px wide, its feet 10 px from the bottom (the AC15 source geometry)
 SRC_W, SRC_H = 500, 900
 BODY_H, BODY_W, FEET = 300, 200, 10
 # the source figure's top row (889 - 299), so the scaled figure's top lands on
-# floor + 1 - (890 * 383 / 300) = 716 + 1 - 1136 = -419 (off the canvas;
-# AC15's 383 / 716, amendment 9)
+# floor + 1 - (890 * 391 / 300) = 715 + 1 - 1160 = -444 (off the canvas;
+# AC15's 391 / 715, amendment 10)
 
 
 def _make_still(w, h, corner=(10, 200, 10)):
@@ -59,7 +60,7 @@ def _save_still(im, path):
 
 def _anchor(path, frame_size=704):
     dst = path.parent / "master.png"
-    stills.anchor(path, dst, frame_size, PROFILE)
+    stills.anchor(path, dst, frame_size, PROFILE, "s")
     return dst
 
 
@@ -71,7 +72,7 @@ class TestStillPreparation(unittest.TestCase):
     def test_r1_500x900_still_anchors_to_the_profile_target(self):
         """AC15-r1 (retargeted): the 500x900 standing still anchors to the
         832x1024 master on flat chroma green (31, 203, 25): measured body
-        382.9 +/- 1, floor 716.45 +/- 1, centre x 416 at the default frame
+        391.2 +/- 1, floor 715.27 +/- 1, centre x 416 at the default frame
         size 704."""
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
@@ -85,10 +86,10 @@ class TestStillPreparation(unittest.TestCase):
             self.assertEqual(out.getpixel((0, 1023)), CHROMA)
             self.assertEqual(out.getpixel((831, 1023)), CHROMA)
             m = metrics.measure(dst)
-            # body_h x 832 / frame_size = 324 x 832 / 704 = 382.9 +/- 1
-            self.assertAlmostEqual(m["body_h"], 324 * 832 / 704, delta=1)
-            # floor_y x 832 / frame_size + 96 = 525 x 832 / 704 + 96 = 716.45 +/- 1
-            self.assertAlmostEqual(m["floor_y"], 525 * 832 / 704 + 96, delta=1)
+            # body_h x 832 / frame_size = 331 x 832 / 704 = 391.2 +/- 1
+            self.assertAlmostEqual(m["body_h"], 331 * 832 / 704, delta=1)
+            # floor_y x 832 / frame_size + 96 = 524 x 832 / 704 + 96 = 715.27 +/- 1
+            self.assertAlmostEqual(m["floor_y"], 524 * 832 / 704 + 96, delta=1)
             # centred horizontally: the measured centre sits on the canvas centre
             self.assertAlmostEqual(m["centre_x"], 416, delta=1)
 
@@ -109,8 +110,8 @@ class TestStillPreparation(unittest.TestCase):
             self.assertEqual(out.getpixel((0, 0)), CHROMA)
             self.assertEqual(out.getpixel((831, 1023)), CHROMA)
             m = metrics.measure(dst)
-            self.assertAlmostEqual(m["body_h"], 324 * 832 / 704, delta=1)
-            self.assertAlmostEqual(m["floor_y"], 525 * 832 / 704 + 96, delta=1)
+            self.assertAlmostEqual(m["body_h"], 331 * 832 / 704, delta=1)
+            self.assertAlmostEqual(m["floor_y"], 524 * 832 / 704 + 96, delta=1)
             self.assertAlmostEqual(m["centre_x"], 416, delta=1)
 
     def test_r3_2000x1000_wide_frame_anchors_the_figure(self):
@@ -132,8 +133,8 @@ class TestStillPreparation(unittest.TestCase):
             self.assertEqual(out.getpixel((0, 1023)), CHROMA)
             self.assertEqual(out.getpixel((831, 1023)), CHROMA)
             m = metrics.measure(dst)
-            self.assertAlmostEqual(m["body_h"], 324 * 832 / 704, delta=1)
-            self.assertAlmostEqual(m["floor_y"], 525 * 832 / 704 + 96, delta=1)
+            self.assertAlmostEqual(m["body_h"], 331 * 832 / 704, delta=1)
+            self.assertAlmostEqual(m["floor_y"], 524 * 832 / 704 + 96, delta=1)
             self.assertAlmostEqual(m["centre_x"], 416, delta=1)
 
     def test_r1_green_is_flat_everywhere_off_the_figure(self):
@@ -183,5 +184,5 @@ class TestPrepareUnchangedAndFit(unittest.TestCase):
                          (w // 2 - 50, h - 110))
                 im.save(src)
                 with self.assertRaises(metrics.FigureError) as cm:
-                    stills.anchor(src, tmp / "master.png", 704, PROFILE)
+                    stills.anchor(src, tmp / "master.png", 704, PROFILE, "s")
                 self.assertEqual(cm.exception.reason, "too small")

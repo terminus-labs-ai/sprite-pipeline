@@ -17,10 +17,18 @@ import hashlib
 
 from PIL import Image
 
-# the canonical test mannequin's anchor at resolution 704 (the packaged
-# ual-female.glb values): body 324 px tall, feet row 525
-BODY_H = 324
-FLOOR_Y = 525
+# the canonical test mannequin at resolution 704: the packaged ual-female.glb
+# per-direction values (FR 14, amendment 10), body_h / floor_y per direction;
+# BODY_H / FLOOR_Y are its `s` (master) values, 331 / 524
+DIRS = {
+    "s": {"body_h": 331, "floor_y": 524},
+    "se": {"body_h": 367, "floor_y": 532},
+    "e": {"body_h": 399, "floor_y": 533},
+    "ne": {"body_h": 354, "floor_y": 534},
+    "n": {"body_h": 306, "floor_y": 524},
+}
+BODY_H = DIRS["s"]["body_h"]
+FLOOR_Y = DIRS["s"]["floor_y"]
 RESOLUTION = 704
 # the flat background a drive render comes back on, and the mannequin's own
 # colour (differing from it by more than 40 in every channel, FR 6's mask)
@@ -33,19 +41,27 @@ STILL_FIGURE = (140, 80, 60)
 _REGISTRY = {}
 
 
-def register(payload, *, glb_name="test.glb", body_h=BODY_H, floor_y=FLOOR_Y,
-             resolution=RESOLUTION):
+def profile(dirs=None, *, glb_name="test.glb", resolution=RESOLUTION):
+    """A mannequin profile in the FR 14 `dirs` schema: `dirs` (default the
+    canonical DIRS) maps each direction to its `body_h` / `floor_y`."""
+    dirs = DIRS if dirs is None else dirs
+    return {"glb_name": glb_name, "resolution": resolution,
+            "dirs": {d: dict(v) for d, v in dirs.items()}}
+
+
+def register(payload, *, glb_name="test.glb", dirs=None, resolution=RESOLUTION):
     """Register the mannequin profile for a source GLB's bytes, keyed by their
     sha256, so the profile gate (FR 4) accepts them. Returns the digest."""
     digest = hashlib.sha256(payload).hexdigest()
-    _REGISTRY.setdefault(digest, {"glb_name": glb_name, "resolution": resolution,
-                                  "body_h": body_h, "floor_y": floor_y})
+    _REGISTRY.setdefault(digest, profile(dirs, glb_name=glb_name,
+                                         resolution=resolution))
     return digest
 
 
 def profiles():
     """The registered profiles in the `{hash: profile}` schema."""
-    return {k: dict(v) for k, v in _REGISTRY.items()}
+    return {k: profile(v["dirs"], glb_name=v["glb_name"], resolution=v["resolution"])
+            for k, v in _REGISTRY.items()}
 
 
 def tpose_render(body_h=BODY_H, floor_y=FLOOR_Y, resolution=RESOLUTION):

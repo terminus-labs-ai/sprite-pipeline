@@ -126,11 +126,11 @@ class TestPadAnchoredReference(unittest.TestCase):
     """AC17 (amendment 9): the larger-canvas reference of an anchored master
     is the animate workflow's crop-and-scale (832x1024 -> rows 96-927 ->
     frame x frame) centred on the canvas, so the figure keeps the mannequin's
-    pixel size and aspect. Profile ual-female: body_h 324, floor_y 525 at
-    704; canvas 1152 shifts the floor by (1152 - 704) // 2 = 224."""
+    pixel size and aspect. Profile ual-female `s` (amendment 10): body_h 331,
+    floor_y 524 at 704; canvas 1152 shifts the floor by (1152 - 704) // 2 =
+    224."""
 
-    PROFILE = {"glb_name": "test.glb", "resolution": 704, "body_h": 324,
-               "floor_y": 525}
+    PROFILE = mannequins.profile()
 
     def setUp(self):
         self._t = tempfile.TemporaryDirectory()
@@ -140,32 +140,32 @@ class TestPadAnchoredReference(unittest.TestCase):
     def _assert_mannequin_at_1152(self, padded):
         self.assertEqual(Image.open(padded).size, (1152, 1152))
         m = metrics.measure(padded)
-        self.assertAlmostEqual(m["body_h"], 324, delta=1)
-        self.assertAlmostEqual(m["floor_y"], 525 + (1152 - 704) // 2, delta=1)  # 749
+        self.assertAlmostEqual(m["body_h"], 331, delta=1)
+        self.assertAlmostEqual(m["floor_y"], 524 + (1152 - 704) // 2, delta=1)  # 748
         self.assertAlmostEqual(m["centre_x"], 576, delta=1)
 
     def test_ac17_r1_padded_anchored_master_measures_the_mannequin(self):
         """AC17-r1 through the real producer: `stills.anchor` at frame 704
-        (master body 383, floor 716 on the 832x1024 canvas, FR 6), then
-        `pad_ref` to 1152: 1152x1152, body 324 +/- 1, floor 749 +/- 1,
+        (master body 391, floor 715 on the 832x1024 canvas, FR 6), then
+        `pad_ref` to 1152: 1152x1152, body 331 +/- 1, floor 748 +/- 1,
         centre x 576 +/- 1."""
         src, master = self.tmp / "src.png", self.tmp / "s.png"
         mannequins.standing_still().save(src)
-        stills.anchor(src, master, 704, self.PROFILE)
+        stills.anchor(src, master, 704, self.PROFILE, "s")
         m = metrics.measure(master)
-        self.assertAlmostEqual(m["body_h"], 324 * 832 / 704, delta=1)
-        self.assertAlmostEqual(m["floor_y"], 525 * 832 / 704 + 96, delta=1)
+        self.assertAlmostEqual(m["body_h"], 331 * 832 / 704, delta=1)
+        self.assertAlmostEqual(m["floor_y"], 524 * 832 / 704 + 96, delta=1)
         padded = self.tmp / "padded.png"
         stages.pad_ref(str(master), str(padded), "704", "1152", [])
         self._assert_mannequin_at_1152(padded)
 
     def test_ac17_r1_pad_ref_maps_an_fr6_master_to_the_mannequin(self):
         """AC17-r1 on `pad_ref` alone: a synthetic 832x1024 master at the FR 6
-        geometry (body 383, feet row 716, centre x 416, flat chroma green)
-        pads to body 324, floor 749, centre x 576 — a squash to 704x704 would
-        give body 263."""
+        geometry (body 391, feet row 715, centre x 416, flat chroma green)
+        pads to body 331, floor 748, centre x 576 — a squash to 704x704 would
+        give body 269."""
         master, padded = self.tmp / "s.png", self.tmp / "padded.png"
-        mannequins.pose_frame(832, 1024, body_h=383, body_w=200, bottom=716,
+        mannequins.pose_frame(832, 1024, body_h=391, body_w=200, bottom=715,
                               centre_x=416, corner=(31, 203, 25)).save(master)
         stages.pad_ref(str(master), str(padded), "704", "1152", [])
         self._assert_mannequin_at_1152(padded)

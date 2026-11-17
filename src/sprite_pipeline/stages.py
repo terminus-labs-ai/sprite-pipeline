@@ -189,7 +189,7 @@ class StageCtx:
     def ref_size(self, char, d):
         """FR 8 (amendment 3): the direction still's size ratio — its body
         height measured the way the master is (FR 6, `metrics.measure`) over
-        the anchor profile's target on the 832x1024 edit canvas
+        the anchor profile's master (`s`) target on the 832x1024 edit canvas
         (`stills.body_target`), rounded to two decimals. None when the still
         has no figure to measure: the report is advisory and never raises."""
         try:
@@ -197,7 +197,8 @@ class StageCtx:
         except Exception:
             return None
         target = stills.body_target(self.project.sprite.frame_size,
-                                    project.anchor_profile(self.project))
+                                    project.anchor_profile(self.project),
+                                    self.project.still_dir)
         return round(body_h / target, 2)
 
     # -- stage output predicates (skip-if-exists)
