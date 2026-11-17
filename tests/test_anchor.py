@@ -508,6 +508,44 @@ class TestEditConsumesTheAnchoredMaster(GoEnv):
                               "cutout": _keyed})
 
 
+class TestInjectedProfilesAnchorGo(GoEnv):
+    """FR 4 / FR 14: the profile map a caller injects through
+    `cli.main(..., profiles=…)` is the map the load gate checks and the map
+    `go` anchors the stills with. The GLB's bytes are registered nowhere else,
+    and its injected profile (345 / 538) differs from the stub profile."""
+
+    PAYLOAD = b"glb bytes profiled only by the injected map"
+
+    def setUp(self):
+        super().setUp()
+        (self.base / "anims" / "ual.glb").write_bytes(self.PAYLOAD)
+        self.prof = profile(body_h=345, floor_y=538)
+        self.fake = FakeRun(after={"sprite_pipeline.comfy edit": self._write_still,
+                                   "cutout": self._write_keyed})
+
+    def go_profiles(self):
+        return {**metrics.load_profiles(user_path=Path(str(self.home / "nope"))),
+                hashlib.sha256(self.PAYLOAD).hexdigest(): self.prof}
+
+    def _write_still(self, argv):
+        dst = Path(argv[argv.index("--copy-to") + 1])
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        spec_still().save(dst)
+
+    def _write_keyed(self, argv):
+        out = Path(argv[argv.index("--out") + 1])
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(_stub_glb_bytes())
+
+    def test_go_anchors_with_the_injected_profile(self):
+        code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+        self.assertEqual(code, 0, out)
+        m = metrics.measure(self.master / "s.png")
+        # 345 x 1024 / 704 = 501.8 and 538 x 1024 / 704 = 782.5
+        self.assertAlmostEqual(m["body_h"], 345 * 1024 / 704, delta=1.5)
+        self.assertAlmostEqual(m["floor_y"], 538 * 1024 / 704, delta=1.5)
+
+
 # ---------------------------------------- AC15-r7/r8 (amendment 4): subcommand
 
 class TestMannequinProfileCommand(unittest.TestCase):

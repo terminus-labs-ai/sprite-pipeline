@@ -112,6 +112,9 @@ class Project:
     workflows: dict
     characters: list
     animations: list
+    # the mannequin-profile map the load gate checked (FR 4, FR 14): the map
+    # `anchor_profile` anchors with, so gate and anchor never disagree
+    profiles: dict = field(default=None, repr=False, compare=False)
 
     @property
     def still_dir(self):
@@ -166,7 +169,7 @@ def user_profiles_path():
 def anchor_profiles():
     """FR 14: the profile map a load validates against and `go` anchors with:
     the packaged profiles merged with the host file, last-write-wins per
-    hash. (A test injects its own map through `load_project(profiles=…)`
+    hash. (A caller injects its own map through `load_project(profiles=…)`
     instead of writing the host file.)"""
     return metrics.load_profiles()
 
@@ -174,9 +177,11 @@ def anchor_profiles():
 def anchor_profile(proj, profiles=None):
     """The project's anchor profile (FR 6, FR 14): the profile of the
     first-listed animation's source GLB. Load checked every distinct source GLB
-    against `profiles` (FR 4), so the key is there; an explicit `profiles` map
-    (a caller that merged the host file) wins over the packaged file."""
+    against the map it kept on the project (FR 4), so the key is there; an
+    explicit `profiles` map wins over that map."""
     digest = metrics.glb_sha256(proj.animations[0].source)
+    if profiles is None:
+        profiles = proj.profiles
     if profiles is not None and digest in profiles:
         return profiles[digest]
     return anchor_profiles()[digest]
@@ -272,7 +277,7 @@ def load_project(path, views_dir=VIEWS_DIR, profiles=None):
     proj = Project(path=path, style=d.get("style") or "", view=view, generate=generate, mirror=mirror,
                    sprite=sprite, naming=naming, export=export, seed=seed,
                    pose_strength=pose_strength, output=output, rig=rig, workflows=workflows,
-                   characters=[], animations=[])
+                   characters=[], animations=[], profiles=profiles)
 
     # the view's camera-facing directions (FR 2): the preset's face_dirs
     # intersected with directions.generate, in generate order; a preset
