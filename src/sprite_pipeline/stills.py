@@ -1,5 +1,5 @@
 """Anchored still preparation, direction-edit prompts and the review sheet
-(spec FR 6-8, amendments 3, 9 and 10).
+(spec FR 6-8, amendments 3, 9, 10 and 11).
 
 A character's still must be an A- or T-pose standing figure on a flat
 background. `check` (FR 6) measures it with `metrics` and rejects a figure that
@@ -23,9 +23,10 @@ reference canvas: there is no 1280 canvas anymore.
 
 `guide` (FR 7) places a mannequin render facing a direction on the edit
 canvas at that direction's target (silhouette: difference > GUIDE_DIFF from
-the render's corner) and `reanchor` scales and pastes a direction's raw edit
-the same way, without the standing-figure rule; `anchor`, `guide` and
-`reanchor` share one scale-and-paste (`_place`).
+the render's corner, plus every region it fully encloses) and `reanchor`
+scales and pastes a direction's raw edit the same way, without the
+standing-figure rule; `anchor`, `guide` and `reanchor` share one
+scale-and-paste (`_place`).
 
 `dir_prompt` (FR 7) is the edit-workflow prompt for one direction: the view's
 turn prompt for that direction, wrapped in the character's pronoun, plus the
@@ -127,15 +128,29 @@ def _figure_mask(im, diff):
     return (abs(arr - arr[0, 0]) > diff).any(axis=2)
 
 
-def _place(src, dst, frame_size, profile, d, diff):
+def _fill_holes(mask):
+    """FR 7 (amendment 11): `mask` plus every region of other pixels it fully
+    encloses — the non-mask pixels a 4-connected flood fill from the image
+    border does not reach."""
+    from PIL import Image, ImageDraw
+
+    # a one-pixel non-mask frame joins the whole border into one seed region
+    im = Image.fromarray(numpy.pad(mask, 1).astype(numpy.uint8) * 255).copy()
+    ImageDraw.floodfill(im, (0, 0), 128)
+    # the fill marks every border-reached pixel 128: the rest is silhouette
+    return numpy.asarray(im)[1:-1, 1:-1] != 128
+
+
+def _place(src, dst, frame_size, profile, d, diff, fill_holes=False):
     """The FR 6 scale-and-paste shared by `anchor`, `reanchor` and `guide`.
 
     The figure of `src` (every pixel differing from its corner colour by
-    more than `diff`; its bounding box is the measured body) is scaled
-    uniformly so its body height equals `body_target(frame_size, profile,
-    d)` and pasted on an 832x1024 canvas filled with CHROMA_GREEN: its feet
-    row lands on `floor_line(frame_size, profile, d)` and its centre x on
-    the canvas centre (x 416). Returns `dst`. Raises metrics.FigureError
+    more than `diff`, plus the regions it encloses when `fill_holes`; its
+    bounding box is the measured body) is scaled uniformly so its body
+    height equals `body_target(frame_size, profile, d)` and pasted on an
+    832x1024 canvas filled with CHROMA_GREEN: its feet row lands on
+    `floor_line(frame_size, profile, d)` and its centre x on the canvas
+    centre (x 416). Returns `dst`. Raises metrics.FigureError
     naming `src` when it cannot be read as an image or has no figure.
     """
     from PIL import Image
@@ -147,6 +162,8 @@ def _place(src, dst, frame_size, profile, d, diff):
         # never a traceback
         raise metrics.FigureError(str(src), "not a readable image") from e
     mask = _figure_mask(im, diff)
+    if fill_holes:
+        mask = _fill_holes(mask)
     rows = numpy.nonzero(mask.any(axis=1))[0]
     if len(rows) == 0:
         raise metrics.FigureError(str(src), "nothing to measure (flat image)")
@@ -221,11 +238,14 @@ def reanchor(src, dst, frame_size, profile, d):
 def guide(render, dst, frame_size, profile, d):
     """FR 7: place a mannequin render facing `d` on the edit canvas as the
     direction's guide (`master/<d>.guide.png`). The render's silhouette is
-    every pixel differing from its corner colour by more than GUIDE_DIFF;
-    it is scaled to direction `d`'s target, feet on its floor line, centred
-    at x 416, on CHROMA_GREEN. Returns `dst`. Raises metrics.FigureError
-    naming `render` when it has no silhouette."""
-    return _place(render, dst, frame_size, profile, d, GUIDE_DIFF)
+    every pixel differing from its corner colour by more than GUIDE_DIFF,
+    plus every region of other pixels those fully enclose (not connected to
+    the image border through non-silhouette pixels; amendment 11), so no
+    chroma green is left inside the mannequin; it is scaled to direction
+    `d`'s target, feet on its floor line, centred at x 416, on CHROMA_GREEN.
+    Returns `dst`. Raises metrics.FigureError naming `render` when it has no
+    silhouette."""
+    return _place(render, dst, frame_size, profile, d, GUIDE_DIFF, fill_holes=True)
 
 
 def size_master(src, dst_dir, size=STILL_SIZE):

@@ -7,7 +7,9 @@ configured motion_cache), places it as `master/<d>.guide.png`, runs the edit
 with `--image master/s.png --pose-image master/<d>.guide.png` and the guide
 line appended to the prompt (ComfyUI faked at subprocess.run), keeps the raw
 output as `master/<d>.edit.png` and re-anchors it to `master/<d>.png`
-without the standing-figure rule.
+without the standing-figure rule. The guide's silhouette includes every
+region it fully encloses (amendment 11): no chroma green is left inside the
+mannequin.
 
 The expected targets are stated literally from the stub profile (the female
 values in tests/mannequins.py) on the 832x1024 canvas at frame size 704:
@@ -18,6 +20,7 @@ import io
 import json
 import tempfile
 import unittest
+from collections import deque
 from pathlib import Path
 
 import numpy
@@ -208,6 +211,101 @@ class TestGuidePlacement(GuidedFixture):
             with self.assertRaises(metrics.FigureError) as cm:
                 stills.guide(render, Path(tmp) / "g.png", 704, mannequins.profile(), "e")
             self.assertIn(str(render), str(cm.exception))
+
+
+# ------------------------------------------- AC18-r9 / r10: enclosed holes filled
+
+FIXTURES = ROOT / "tests" / "fixtures"
+# FR 14's packaged (body_h, floor_y) per GLB and direction at 704, stated
+# independently of the packaged file
+FR14 = {
+    "ual-female.glb": {"s": (331, 524), "se": (367, 532), "e": (399, 533),
+                       "ne": (354, 534), "n": (306, 524)},
+    "ual.glb": {"s": (354, 536), "se": (394, 539), "e": (420, 528),
+                "ne": (363, 526), "n": (308, 518)},
+}
+FIXTURE_GLB = {"female": "ual-female.glb", "male": "ual.glb"}
+
+
+def enclosed_green(arr):
+    """The case table's oracle: the number of chroma-green pixels (within 40
+    of GREEN in every channel) not connected to the canvas border through
+    such pixels (4-connected breadth-first flood fill from the border)."""
+    green = (numpy.abs(arr.astype(numpy.int16) - numpy.array(GREEN)) <= 40).all(axis=2)
+    h, w = green.shape
+    seen = numpy.zeros_like(green)
+    queue = deque()
+    border = ([(y, x) for y in range(h) for x in (0, w - 1)]
+              + [(y, x) for x in range(w) for y in (0, h - 1)])
+    for y, x in border:
+        if green[y, x] and not seen[y, x]:
+            seen[y, x] = True
+            queue.append((y, x))
+    while queue:
+        y, x = queue.popleft()
+        for yy, xx in ((y + 1, x), (y - 1, x), (y, x + 1), (y, x - 1)):
+            if 0 <= yy < h and 0 <= xx < w and green[yy, xx] and not seen[yy, xx]:
+                seen[yy, xx] = True
+                queue.append((yy, xx))
+    return int((green & ~seen).sum())
+
+
+class TestGuideHolesFilled(unittest.TestCase):
+    """AC18-r9: a guide built from each committed fixture render with the
+    packaged profile for its GLB and direction (frame size 704) has no
+    enclosed chroma-green pixel and sits on that direction's target, floor
+    and centre x 416 +/- 1. AC18-r10: a region inside the figure exactly
+    equal to the background colour is pasted as figure (amendment 11)."""
+
+    def test_ac18_r9_fixture_guides_have_no_enclosed_green(self):
+        pkg = json.loads(metrics.PACKAGED_PROFILES.read_text())["profiles"]
+        with tempfile.TemporaryDirectory() as tmp:
+            for sex, glb in FIXTURE_GLB.items():
+                profile = next(p for p in pkg.values() if p["glb_name"] == glb)
+                for d, (body_h, floor_y) in FR14[glb].items():
+                    with self.subTest(glb=glb, d=d):
+                        render = FIXTURES / f"mannequin_tpose_{sex}_{d}_704.png"
+                        dst = Path(tmp) / f"{sex}_{d}.guide.png"
+                        stills.guide(render, dst, 704, profile, d)
+                        arr = numpy.asarray(Image.open(dst).convert("RGB"))
+                        self.assertEqual(arr.shape, (1024, 832, 3))
+                        self.assertEqual(enclosed_green(arr), 0)
+                        # FR 6 targets at 704: body x 832 / 704, floor x 832 / 704 + 96
+                        m = metrics.measure(dst)
+                        self.assertAlmostEqual(m["body_h"], body_h * 832 / 704, delta=1)
+                        self.assertAlmostEqual(m["floor_y"], floor_y * 832 / 704 + 96,
+                                               delta=1)
+                        self.assertAlmostEqual(m["centre_x"], CENTRE_X, delta=1)
+
+    def test_ac18_r10_background_coloured_patch_inside_pastes_as_figure(self):
+        bg, fig = (120, 120, 120), (126, 126, 126)
+        with tempfile.TemporaryDirectory() as tmp:
+            render = Path(tmp) / "render.png"
+            # the stub e mannequin (399 px, feet on 533, torso x 260-339)
+            # with a 30x30 patch of exactly the background colour inside the
+            # torso: source x 285-314, rows 300-329
+            im = grey_render(bg, fig, 399, 533)
+            im.paste(bg, (285, 300, 315, 330))
+            im.save(render)
+            dst = Path(tmp) / "e.guide.png"
+            stills.guide(render, dst, 704, mannequins.profile(), "e")
+            arr = numpy.asarray(Image.open(dst).convert("RGB"))
+            self.assertEqual(enclosed_green(arr), 0)
+            # the patch, placed: scale 471.5 / 399 about the torso's centre x
+            # (299.5 -> 416) and feet row (533 -> the guide's floor)
+            m = metrics.measure(dst)
+            s = TARGET["e"][0] / 399
+            x0, x1 = round(416 + (285 - 299.5) * s), round(416 + (315 - 299.5) * s)
+            y0 = round(m["floor_y"] - (533 - 300) * s)
+            y1 = round(m["floor_y"] - (533 - 330) * s)
+            patch = arr[y0:y1, x0:x1]
+            self.assertGreater(patch.shape[0] * patch.shape[1], 30 * 30)
+            self.assertFalse((patch == GREEN).all(axis=2).any(),
+                             "green pixels in the background-coloured patch")
+            # its interior holds the render's own pixels: the background grey
+            inner = arr[y0 + 5:y1 - 5, x0 + 5:x1 - 5]
+            self.assertGreater(inner.size, 0)
+            self.assertTrue((inner == bg).all(), "patch interior is not render pixels")
 
 
 # ------------------------------------------------------------ AC18-r4: the prompt
