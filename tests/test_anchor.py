@@ -19,8 +19,8 @@
 
 The anchor rows state their expected numbers independently of production code,
 as the literal FR 6 formula over the profile, each +/- 1: 324 x 1024 / 704 =
-471.3 and 525 x 1024 / 704 = 763.6 at frame_size 704 (the AC's rounded 470 /
-766 do not follow from the formula), and at frame_size 1024:
+471.3 and 525 x 1024 / 704 = 763.6 at frame_size 704 (AC15's 471 / 764,
+amendment 7), and at frame_size 1024:
 324 x 1024 / 1024 = 324, (525 + (1024 - 704) // 2) = 685.
 
 No network, GPU, Blender or ComfyUI: subprocesses are faked at subprocess.run,
@@ -125,8 +125,8 @@ class AnchorCase(unittest.TestCase):
         self.assertEqual(out.getpixel((0, 1023)), CHROMA)
         self.assertEqual(out.getpixel((831, 1023)), CHROMA)
         # the FR 6 formula at 704: 324 x 1024 / 704 = 471.3 and
-        # 525 x 1024 / 704 = 763.6, each +/- 1 (the AC's rounded "470" and
-        # "766" do not follow from the formula; reported for a spec fix)
+        # 525 x 1024 / 704 = 763.6, each +/- 1 (AC15's 471 / 764,
+        # amendment 7)
         self._assert_geometry(dst, 704)
 
     def test_r1_green_is_the_flat_chroma_colour_everywhere_off_the_figure(self):

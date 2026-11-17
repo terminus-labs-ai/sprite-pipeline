@@ -10,8 +10,8 @@ anymore.
 The expected numbers are stated independently of production code, as the
 literal FR 6 formula over the test mannequin profile (body_h 324, floor_y
 525 at the 704 drive resolution), each +/- 1: 324 x 1024 / 704 = 471.3 and
-(525 + (704 - 704) // 2) x 1024 / 704 = 763.6 (AC15's rounded 470 / 766 do
-not follow from the formula).
+(525 + (704 - 704) // 2) x 1024 / 704 = 763.6 (AC15's 471 / 764,
+amendment 7).
 """
 import tempfile
 import unittest
@@ -33,7 +33,8 @@ PROFILE = {"glb_name": "test.glb", "resolution": 704, "body_h": 324,
 SRC_W, SRC_H = 500, 900
 BODY_H, BODY_W, FEET = 300, 200, 10
 # the source figure's top row (889 - 299), so the scaled figure's top lands on
-# floor + 1 - (890 * 470 / 300) = 766 + 1 - 1389 = -622 (off the canvas)
+# floor + 1 - (890 * 471 / 300) = 764 + 1 - 1397 = -632 (off the canvas;
+# AC15's 471 / 764, amendment 7)
 
 
 def _make_still(w, h, corner=(10, 200, 10)):
