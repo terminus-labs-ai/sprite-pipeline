@@ -12,8 +12,8 @@ height equals the target on the 832x1024 edit canvas — `dirs.s.body_h * 832 /
 frame_size` px (391.2 for the packaged ual-female.glb profile at 704) — with
 its feet pinned to floor `floor_y(frame_size) * 832 / frame_size + 96` (715.27
 there) and the figure centred horizontally (x 416). No mannequin is a code
-default: the profile and direction are always passed in. Every other pixel is flat
-chroma green (CHROMA_GREEN). The 832 and 96 are the packaged animate
+default: the profile and direction are always passed in. Every other pixel
+is flat chroma green (CHROMA_GREEN). The 832 and 96 are the packaged animate
 workflow's reference mapping: it centre-crops the 832x1024 still to 832x832
 (rows 96-927, CROP_Y = (CANVAS_H - CANVAS_W) // 2) and scales it by
 `frame_size / 832`. Anchoring reproduces the drive-video geometry after that
