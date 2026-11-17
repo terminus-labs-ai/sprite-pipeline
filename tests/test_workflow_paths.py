@@ -19,6 +19,8 @@ from pathlib import Path
 import yaml
 from PIL import Image
 
+import mannequins
+
 from sprite_pipeline import config, project, stages
 
 HERE = Path(__file__).resolve().parent
@@ -67,6 +69,7 @@ def make_project(tmp, text, with_alt=True):
             {"1": {"class_type": "Test", "inputs": {},
                    "_meta": {"title": "sp:prompt"}}}))
     (base / "project.yaml").write_text(text)
+    mannequins.register(STILL, glb_name="ual.glb")
     return base / "project.yaml"
 
 
@@ -84,7 +87,8 @@ def stubbed_example(tmp):
     (base / "anims").mkdir(parents=True, exist_ok=True)
     (base / "anims" / "ual.glb").write_bytes(STILL)
     (base / "stills").mkdir(parents=True, exist_ok=True)
-    Image.new("RGB", (64, 80), (10, 200, 10)).save(base / "stills" / "courier.png")
+    mannequins.standing_still().save(base / "stills" / "courier.png")
+    mannequins.register(STILL, glb_name="ual.glb")
     return base / "project.yaml", base
 
 

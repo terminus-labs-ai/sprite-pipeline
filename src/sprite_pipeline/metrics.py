@@ -121,6 +121,21 @@ def floor_for_canvas(floor_y, canvas):
     return floor_y + (canvas - DRIVE_RES) // 2
 
 
+def anchor_floor(floor_y, frame_size):
+    """FR 6 + FR 14: the floor row in px of the anchored master on the
+    832x1024 edit canvas for a 704-res `floor_y` and the drive
+    `frame_size`: FR 14's drive rule shifts the 704-res floor by
+    `(max(frame_size, 704) - 704) // 2`, and the edit canvas maps it by
+    1024 / frame_size — 525 -> 766 at 704, 525 -> 685 at 1024."""
+    canvas = max(int(frame_size), DRIVE_RES)
+    return (floor_y + (canvas - DRIVE_RES) // 2) * CANVAS_H / int(frame_size)
+
+
+# the edit canvas an anchored master is composited onto (FR 6); defined here
+# so anchor_floor is self-contained — stills re-exports it
+CANVAS_H = 1024
+
+
 def glb_sha256(path):
     """The profile key of a source GLB: the sha256 of its bytes (FR 14)."""
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()

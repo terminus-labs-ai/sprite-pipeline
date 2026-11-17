@@ -1,0 +1,1566 @@
+.......F.....FF.FFFFF.......F...........................FFFFF........... [ 29%]
+.............FF..............................................F........FF [ 58%]
+FFFF..FFFF...F.................FFFFFFFF.F.F....FF....................... [ 88%]
+...................FFFFF.....                                            [100%]
+=================================== FAILURES ===================================
+_____________ AnchorCase.test_r2_other_frame_sizes_follow_the_rule _____________
+
+self = <test_anchor.AnchorCase testMethod=test_r2_other_frame_sizes_follow_the_rule>
+
+    def test_r2_other_frame_sizes_follow_the_rule(self):
+        """The rule at two more canvas sizes (1152, 1408): target 198 / 162,
+        floor 472 / 509 — body pixels shrink, the shifted floor shrinks with them."""
+        for frame_size, want_h, want_floor in ((1152, 198, 472), (1408, 162, 509)):
+            dst = self._anchor(spec_still(), frame_size)
+            m = metrics.measure(dst)
+>           self.assertAlmostEqual(m["body_h"], want_h, delta=1.5)
+E           AssertionError: 289 != 198 within 1.5 delta (91 difference)
+
+tests/test_anchor.py:166: AssertionError
+____________ TestProfileGate.test_r4_a_profiled_glb_passes_the_gate ____________
+
+self = <test_anchor.TestProfileGate testMethod=test_r4_a_profiled_glb_passes_the_gate>
+
+    def test_r4_a_profiled_glb_passes_the_gate(self):
+        """The same run with the GLB's profile registered gets past the gate."""
+        mannequins.register(self.glb_bytes, glb_name="ual.glb")
+        (self.base / "stills" / "courier.png").save if False else None
+        spec_still().save(self.base / "stills" / "courier.png")
+        fake = FakeRun(after={"sprite_pipeline.comfy edit": self._write_still,
+                             "cutout": self._write_keyed})
+>       code, out = self.run_cli(["go", str(self.project)], fake=fake)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_anchor.py:387: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_anchor.py:255: in run_cli
+    code = cli.main(argv, profiles=self.go_profiles())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmpl5bdojbs/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: '0c5d8a4b02b7f90d5313637662d67c194b81985c548b508865c788de9efcdba2'
+
+src/sprite_pipeline/project.py:199: KeyError
+____________ TestProfileGate.test_r4_dry_run_needs_no_profiled_glb _____________
+
+self = <test_anchor.TestProfileGate testMethod=test_r4_dry_run_needs_no_profiled_glb>
+
+    def test_r4_dry_run_needs_no_profiled_glb(self):
+        """AC1-r1 keeps working: `--dry-run` plans from the project file."""
+        code, out = self.run_cli(["go", str(self.project), "--dry-run"])
+>       self.assertEqual(code, 0, out)
+E       AssertionError: 2 != 0 : project error: project.yaml: characters[0].still: stills/courier.png not found
+
+tests/test_anchor.py:403: AssertionError
+___ TestProfileGate.test_r4_unprofiled_glb_exit_2_prints_prefix_and_command ____
+
+self = <test_anchor.TestProfileGate testMethod=test_r4_unprofiled_glb_exit_2_prints_prefix_and_command>
+
+    def test_r4_unprofiled_glb_exit_2_prints_prefix_and_command(self):
+        """The load-level gate (FR 4): the message names the GLB, prints the
+        sha256 prefix and the command that measures a profile."""
+        payload = b"glb bytes no profile knows"
+        unknown = self.base / "anims" / "unknown.glb"
+        unknown.write_bytes(payload)
+        digest = hashlib.sha256(payload).hexdigest()
+        with self.assertRaises(project.ProjectError) as cm:
+            project.load_project(self.project, profiles={})  # no profiles at all
+        msg = str(cm.exception)
+>       self.assertIn("no mannequin profile", msg)
+E       AssertionError: 'no mannequin profile' not found in 'project.yaml: characters[0].still: stills/courier.png not found'
+
+tests/test_anchor.py:360: AssertionError
+_ TestEditConsumesTheAnchoredMaster.test_r5_direction_stills_keep_the_edit_canvas _
+
+self = <test_anchor.TestEditConsumesTheAnchoredMaster testMethod=test_r5_direction_stills_keep_the_edit_canvas>
+
+    def test_r5_direction_stills_keep_the_edit_canvas(self):
+        """A direction still is the edit's own output on the 832x1024 canvas —
+        no 1280 padding is applied to it."""
+>       code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_anchor.py:475: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_anchor.py:255: in run_cli
+    code = cli.main(argv, profiles=self.go_profiles())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmpel7rh94m/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: '0c5d8a4b02b7f90d5313637662d67c194b81985c548b508865c788de9efcdba2'
+
+src/sprite_pipeline/project.py:199: KeyError
+_ TestEditConsumesTheAnchoredMaster.test_r5_edit_image_is_the_anchored_master __
+
+self = <test_anchor.TestEditConsumesTheAnchoredMaster testMethod=test_r5_edit_image_is_the_anchored_master>
+
+    def test_r5_edit_image_is_the_anchored_master(self):
+>       code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_anchor.py:432: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_anchor.py:255: in run_cli
+    code = cli.main(argv, profiles=self.go_profiles())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmpibjxo95y/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: '0c5d8a4b02b7f90d5313637662d67c194b81985c548b508865c788de9efcdba2'
+
+src/sprite_pipeline/project.py:199: KeyError
+__ TestEditConsumesTheAnchoredMaster.test_r5_keyed_file_is_master_s_keyed_png __
+
+self = <test_anchor.TestEditConsumesTheAnchoredMaster testMethod=test_r5_keyed_file_is_master_s_keyed_png>
+
+    def test_r5_keyed_file_is_master_s_keyed_png(self):
+        """The keyed master is `master/s.keyed.png`: the FR 6 direction is `s`,
+        so the cutout of the master keys to that name."""
+        # the example project's first generate entry is `s`: the still's own
+        # direction is the master and keys to master/s.keyed.png
+        text = self.project.read_text().replace("generate: [s, se, e, ne, n]",
+                                                "generate: [se, e, ne, n]")
+        self.project.write_text(text)
+>       code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_anchor.py:456: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_anchor.py:255: in run_cli
+    code = cli.main(argv, profiles=self.go_profiles())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmpbec8fdjg/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading..., post=0, look_down=True, state='attack', seam_max=0.0, directions=['se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: '0c5d8a4b02b7f90d5313637662d67c194b81985c548b508865c788de9efcdba2'
+
+src/sprite_pipeline/project.py:199: KeyError
+_ TestEditConsumesTheAnchoredMaster.test_r5_no_se_fit_file_is_prepared_anymore _
+
+self = <test_anchor.TestEditConsumesTheAnchoredMaster testMethod=test_r5_no_se_fit_file_is_prepared_anymore>
+
+    def test_r5_no_se_fit_file_is_prepared_anymore(self):
+        """The 832x1024 `se.fit.png` companion of the old fill-fit flow is gone:
+        the master itself is the edit input."""
+>       code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_anchor.py:468: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_anchor.py:255: in run_cli
+    code = cli.main(argv, profiles=self.go_profiles())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmphurv4x6a/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: '0c5d8a4b02b7f90d5313637662d67c194b81985c548b508865c788de9efcdba2'
+
+src/sprite_pipeline/project.py:199: KeyError
+_ TestMannequinProfileCommand.test_render_mannequin_fails_loudly_when_no_frame_lands _
+
+self = <test_anchor.TestMannequinProfileCommand testMethod=test_render_mannequin_fails_loudly_when_no_frame_lands>
+
+    def test_render_mannequin_fails_loudly_when_no_frame_lands(self):
+        """The real render path (Blender faked at subprocess.run to write
+        nothing) reports a failed render instead of measuring nothing."""
+        cli.render_mannequin = self._old_render
+        subprocess.run = lambda argv, **kw: _Res(0)
+        with self.assertRaises(SystemExit):
+>           cli.render_mannequin(self.glb)
+
+tests/test_anchor.py:598: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/sprite_pipeline/cli.py:322: in render_mannequin
+    if not run_cmds(ctx, cmds, log):
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:243: in run_cmds
+    stages.copy_file(cmd_argv[1], cmd_argv[2], log)
+src/sprite_pipeline/stages.py:348: in copy_file
+    shutil.copyfile(src, dst)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def copyfile(src, dst, *, follow_symlinks=True):
+        """Copy data from src to dst in the most efficient way possible.
+    
+        If follow_symlinks is not set and src is a symbolic link, a new
+        symlink will be created instead of copying the file it points to.
+    
+        """
+        sys.audit("shutil.copyfile", src, dst)
+    
+        if _samefile(src, dst):
+            raise SameFileError("{!r} and {!r} are the same file".format(src, dst))
+    
+        file_size = 0
+        for i, fn in enumerate([src, dst]):
+            try:
+                st = _stat(fn)
+            except OSError:
+                # File most likely does not exist
+                pass
+            else:
+                # XXX What about other special files? (sockets, devices...)
+                if stat.S_ISFIFO(st.st_mode):
+                    fn = fn.path if isinstance(fn, os.DirEntry) else fn
+                    raise SpecialFileError("`%s` is a named pipe" % fn)
+                if _WINDOWS and i == 0:
+                    file_size = st.st_size
+    
+        if not follow_symlinks and _islink(src):
+            os.symlink(os.readlink(src), dst)
+        else:
+>           with open(src, 'rb') as fsrc:
+                 ^^^^^^^^^^^^^^^
+E           FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tmpv0h7330o/home/motion-cache/mannequin-A_TPose-s-e39ec7c5114866cd.mp4'
+
+/home/diego/snap/codium/495/.local/share/uv/python/cpython-3.12.10-linux-x86_64-gnu/lib/python3.12/shutil.py:260: FileNotFoundError
+______ TestGoRealEditAtHTTPSeam.test_r5_exactly_four_edits_and_no_animate ______
+
+self = <test_comfy_cli.TestGoRealEditAtHTTPSeam testMethod=test_r5_exactly_four_edits_and_no_animate>
+
+    def test_r5_exactly_four_edits_and_no_animate(self):
+        project = make_project(self.tmp)
+        fake = FakeRun(self._real_run, after=self._cutout())
+>       code, out = self.run_cli(["go", str(project)], fake)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_comfy_cli.py:284: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_comfy_cli.py:252: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmp5q9yndln/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'a6c49e0511f6b2d4f75503d52679d597d9dabe49472a1753027d875be43cd232'
+
+src/sprite_pipeline/project.py:199: KeyError
+______ TestGoRealEditAtHTTPSeam.test_r5_exit_zero_prints_approve_command _______
+
+self = <test_comfy_cli.TestGoRealEditAtHTTPSeam testMethod=test_r5_exit_zero_prints_approve_command>
+
+    def test_r5_exit_zero_prints_approve_command(self):
+        project = make_project(self.tmp)
+        base = project.parent
+        turn = yaml.safe_load(
+            (ROOT / "src" / "sprite_pipeline" / "views" / "isometric.yaml")
+            .read_text())["turn"]
+        master = base / "out" / "courier" / "master"
+        fake = FakeRun(self._real_run, after=self._cutout())
+>       code, out = self.run_cli(["go", str(project)], fake)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_comfy_cli.py:299: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_comfy_cli.py:252: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmpkkld4cyx/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'a6c49e0511f6b2d4f75503d52679d597d9dabe49472a1753027d875be43cd232'
+
+src/sprite_pipeline/project.py:199: KeyError
+_____________ TestComfyEdit.test_r6_edit_fills_slots_copies_output _____________
+
+self = <test_comfy_cli.TestComfyEdit testMethod=test_r6_edit_fills_slots_copies_output>
+
+    def test_r6_edit_fills_slots_copies_output(self):
+        img = self.tmp / "se.png"
+        Image.new("RGB", (32, 32), (10, 200, 10)).save(img)
+        dst = self.tmp / "out" / "n.png"
+        rc, text = self.run_module([
+            "edit", "--workflow", str(WF_EDIT), "--image", str(img),
+            "--prompt", "turn the character north", "--seed", "3",
+            "--prefix", "c/dir-n", "--copy-to", str(dst)])
+        self.assertEqual(rc, 0, text)
+>       self.assertEqual(len(self.server.prompts), 1)
+E       AssertionError: 0 != 1
+
+tests/test_comfy_cli.py:358: AssertionError
+________ TestComfyAnimateRefName.test_r7_ref_image_is_the_uploaded_name ________
+
+self = <test_comfy_cli.TestComfyAnimateRefName testMethod=test_r7_ref_image_is_the_uploaded_name>
+
+    def test_r7_ref_image_is_the_uploaded_name(self):
+        ref = self.tmp / "ref.png"
+        Image.new("RGB", (32, 32), (10, 200, 10)).save(ref)
+        clip = self.tmp / "clip.mp4"
+        # no ffmpeg is needed: the seam assertions hold on the posted graph
+        rc, text = self.run_module([
+            "animate", "--workflow", str(WF_ANIMATE), "--ref", str(ref),
+            "--video", "drive.mp4", "--prompt", "jogging in place",
+            "--length", "45", "--seed", "3", "--copy-to", str(clip)])
+>       self.assertEqual(len(self.server.prompts), 1, text)
+E       AssertionError: 0 != 1 :
+
+tests/test_comfy_cli.py:387: AssertionError
+_________ TestComfyEditMissingSlot.test_r8_missing_sp_seed_is_an_error _________
+
+self = <test_comfy_cli.TestComfyEditMissingSlot testMethod=test_r8_missing_sp_seed_is_an_error>
+
+    def test_r8_missing_sp_seed_is_an_error(self):
+        graph = json.loads(WF_EDIT.read_text())
+        graph["10"]["_meta"]["title"] = "sp:something_else"
+        wf = self.tmp / "edit.json"
+        wf.write_text(json.dumps(graph))
+        img = self.tmp / "se.png"
+        Image.new("RGB", (32, 32), (10, 200, 10)).save(img)
+        rc, text = self.run_module([
+            "edit", "--workflow", str(wf), "--image", str(img),
+            "--prompt", "p", "--seed", "3",
+            "--prefix", "c/dir-n", "--copy-to", str(self.tmp / "out.png")])
+>       self.assertNotEqual(rc, 0, text)
+E       AssertionError: 0 == 0 :
+
+tests/test_comfy_cli.py:418: AssertionError
+_ TestSharedStillPlan.test_prepare_happens_once_before_the_edits_in_a_real_run _
+
+self = <test_hygiene.TestSharedStillPlan testMethod=test_prepare_happens_once_before_the_edits_in_a_real_run>
+
+    def test_prepare_happens_once_before_the_edits_in_a_real_run(self):
+        """The real run walks the shared plan: the prepare line prints once,
+        ahead of exactly the generated-minus-se edit lines, in plan order.
+        The subprocesses are faked to materialise their declared outputs —
+        the comfy edit copies its --image to --copy-to, the cutout keys its
+        input — so the run proceeds like the real pipeline."""
+        base = fixture(self.tmp)
+        proj = base / "project.yaml"
+    
+        class Result:
+            def __init__(self):
+                self.returncode, self.stdout, self.stderr = 0, "", ""
+    
+        calls = []
+    
+        def fake_run(argv, **kwargs):
+            argv = [str(a) for a in argv]
+            joined = " ".join(argv)
+            calls.append(joined)
+            if "sprite_pipeline.comfy edit" in joined:
+                dst = Path(argv[argv.index("--copy-to") + 1])
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(argv[argv.index("--image") + 1], dst)
+            elif "cutout" in joined:  # sprite-gen cutout: write the keyed file
+                out = Path(argv[argv.index("--out") + 1])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(argv[argv.index("cutout") + 1], out)
+            return Result()
+    
+        code, out = run_cli(["go", str(proj), "--dry-run"])
+        self.assertEqual(code, 0, out)
+>       code, out = run_cli(["go", str(proj), "--stage", "pixel",
+                             "--no-stop", "--animations", "run", "--dirs", "se"],
+                            fake=fake_run)
+
+tests/test_hygiene.py:493: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_hygiene.py:68: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmpyt4hlxvo/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ef730f19c6dc0521a0c331df3a6351828bd2dd1dccde12b8be9195b08b64ec5c'
+
+src/sprite_pipeline/project.py:199: KeyError
+_ TestSharedStillPlan.test_steps_are_prepare_then_generated_minus_se_in_order __
+
+self = <test_hygiene.TestSharedStillPlan testMethod=test_steps_are_prepare_then_generated_minus_se_in_order>
+
+    def test_steps_are_prepare_then_generated_minus_se_in_order(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = fixture(td)
+            p = project.load_project(base / "project.yaml")
+            steps = cli.still_plan(p, "courier")
+            self.assertEqual([s["kind"] for s in steps],
+                             ["prepare", "edit", "edit", "edit", "edit"])
+>           self.assertEqual([s["dir"] for s in steps], ["se", "s", "e", "ne", "n"])
+E           AssertionError: Lists differ: ['s', 'se', 'e', 'ne', 'n'] != ['se', 's', 'e', 'ne', 'n']
+E           
+E           First differing element 0:
+E           's'
+E           'se'
+E           
+E           - ['s', 'se', 'e', 'ne', 'n']
+E           ?  -----
+E           
+E           + ['se', 's', 'e', 'ne', 'n']
+E           ?        +++++
+
+tests/test_hygiene.py:443: AssertionError
+__________ TestExampleProject.test_matches_the_motion_library_at_base __________
+
+self = <test_project.TestExampleProject testMethod=test_matches_the_motion_library_at_base>
+
+    def test_matches_the_motion_library_at_base(self):
+        # motions.yaml was removed with the kit CLI (sprite-pipeline-4); read
+        # it from the last commit that had it
+        text = subprocess.run(
+            ["git", "-C", str(HERE.parent), "show",
+             "b17638b:src/sprite_pipeline/motions.yaml"],
+            capture_output=True, text=True, check=True).stdout
+        motions = yaml.safe_load(text)
+        # the table must track motions.yaml exactly (expected values, not code)
+>       for name, m in motions["moves"].items():
+                       ^^^^^^^^^^^^^^^^
+E       TypeError: 'NoneType' object is not subscriptable
+
+tests/test_project.py:323: TypeError
+_____ TestFirstRunStopsForReview.test_r1_default_seed_is_the_project_seed ______
+
+self = <test_review.TestFirstRunStopsForReview testMethod=test_r1_default_seed_is_the_project_seed>
+
+    
+>   def test_r1_default_seed_is_the_project_seed(self):
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_review.py:298: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_review.py:144: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmpqxndan30/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ed589bd46e3dfaf9fdf45bd57251edc008f32aefbf0a66b2e64d256e71fdbb78'
+
+src/sprite_pipeline/project.py:199: KeyError
+______ TestFirstRunStopsForReview.test_r1_edit_targets_the_edit_workflow _______
+
+self = <test_review.TestFirstRunStopsForReview testMethod=test_r1_edit_targets_the_edit_workflow>
+
+    
+>   def test_r1_edit_targets_the_edit_workflow(self):
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_review.py:304: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_review.py:144: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmpaajrmi3m/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ed589bd46e3dfaf9fdf45bd57251edc008f32aefbf0a66b2e64d256e71fdbb78'
+
+src/sprite_pipeline/project.py:199: KeyError
+_ TestFirstRunStopsForReview.test_r1_four_edit_calls_pinned_prompts_exit_zero_with_approve_command _
+
+self = <test_review.TestFirstRunStopsForReview testMethod=test_r1_four_edit_calls_pinned_prompts_exit_zero_with_approve_command>
+
+    def test_r1_four_edit_calls_pinned_prompts_exit_zero_with_approve_command(self):
+>       code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_review.py:254: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_review.py:144: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmpd73d9g9u/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ed589bd46e3dfaf9fdf45bd57251edc008f32aefbf0a66b2e64d256e71fdbb78'
+
+src/sprite_pipeline/project.py:199: KeyError
+______________ TestFirstRunStopsForReview.test_r1_no_se_edit_call ______________
+
+self = <test_review.TestFirstRunStopsForReview testMethod=test_r1_no_se_edit_call>
+
+    
+>   def test_r1_no_se_edit_call(self):
+                    ^^^^^^^^^^^^^^^^^^^
+
+tests/test_review.py:292: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_review.py:144: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmpamwph1qw/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ed589bd46e3dfaf9fdf45bd57251edc008f32aefbf0a66b2e64d256e71fdbb78'
+
+src/sprite_pipeline/project.py:199: KeyError
+_ TestDirectionStillsShareTheReferenceCanvas.test_edit_output_is_placed_like_prepare_with_corner_fill _
+
+self = <test_review.TestDirectionStillsShareTheReferenceCanvas testMethod=test_edit_output_is_placed_like_prepare_with_corner_fill>
+
+    
+>   def test_edit_output_is_placed_like_prepare_with_corner_fill(self):
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_review.py:326: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_review.py:144: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmprkc7wq7u/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ed589bd46e3dfaf9fdf45bd57251edc008f32aefbf0a66b2e64d256e71fdbb78'
+
+src/sprite_pipeline/project.py:199: KeyError
+_ TestFitStillIsNotADirectionStill.test_edit_image_is_832x1024_and_regenerated_on_force _
+
+self = <test_review.TestFitStillIsNotADirectionStill testMethod=test_edit_image_is_832x1024_and_regenerated_on_force>
+
+    
+>   def test_edit_image_is_832x1024_and_regenerated_on_force(self):
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_review.py:343: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_review.py:144: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmpnhwi9dvz/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ed589bd46e3dfaf9fdf45bd57251edc008f32aefbf0a66b2e64d256e71fdbb78'
+
+src/sprite_pipeline/project.py:199: KeyError
+________________ TestPronounThey.test_r2_prompts_use_them_their ________________
+
+self = <test_review.TestPronounThey testMethod=test_r2_prompts_use_them_their>
+
+    
+>   def test_r2_prompts_use_them_their(self):
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_review.py:377: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_review.py:144: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmp97_2smyn/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ed589bd46e3dfaf9fdf45bd57251edc008f32aefbf0a66b2e64d256e71fdbb78'
+
+src/sprite_pipeline/project.py:199: KeyError
+_________ TestRerunSkipsExistingStills.test_r3_force_redoes_the_edits __________
+
+self = <test_review.TestRerunSkipsExistingStills testMethod=test_r3_force_redoes_the_edits>
+
+    
+    def test_r3_force_redoes_the_edits(self):
+        # the stop alone never re-runs existing still work; --force overrides
+        self.seed_stills()
+>       fake = self._fresh_fake()
+                    ^^^^^^^^^^^^^^
+
+tests/test_review.py:411: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_review.py:144: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmpfnqo5hcz/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ed589bd46e3dfaf9fdf45bd57251edc008f32aefbf0a66b2e64d256e71fdbb78'
+
+src/sprite_pipeline/project.py:199: KeyError
+_______ TestRerunSkipsExistingStills.test_r3_zero_edit_calls_stops_again _______
+
+self = <test_review.TestRerunSkipsExistingStills testMethod=test_r3_zero_edit_calls_stops_again>
+
+    
+    def test_r3_zero_edit_calls_stops_again(self):
+        self.seed_stills()
+>       fake = self._fresh_fake()
+                    ^^^^^^^^^^^^^^
+
+tests/test_review.py:400: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_review.py:144: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmpgvc44t72/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ed589bd46e3dfaf9fdf45bd57251edc008f32aefbf0a66b2e64d256e71fdbb78'
+
+src/sprite_pipeline/project.py:199: KeyError
+____ TestApproveThenContinue.test_r1_an_existing_run_made_of_go_approve_go _____
+
+self = <test_review.TestApproveThenContinue testMethod=test_r1_an_existing_run_made_of_go_approve_go>
+
+>   ???
+
+tests/test_review.py:452: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_review.py:144: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmpwddfs2h5/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ed589bd46e3dfaf9fdf45bd57251edc008f32aefbf0a66b2e64d256e71fdbb78'
+
+src/sprite_pipeline/project.py:199: KeyError
+____________ TestReroll.test_r3_reroll_one_edit_seed_2_stops_again _____________
+
+self = <test_review.TestReroll testMethod=test_r3_reroll_one_edit_seed_2_stops_again>
+
+    
+    def test_r3_reroll_one_edit_seed_2_stops_again(self):
+        self.seed_stills()
+        code, _ = self.run_cli(self.approve_cmd())
+>       self.assertEqual(code, 0)
+
+tests/test_review.py:494: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_review.py:144: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmplw7leqgw/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ed589bd46e3dfaf9fdf45bd57251edc008f32aefbf0a66b2e64d256e71fdbb78'
+
+src/sprite_pipeline/project.py:199: KeyError
+_______ TestSourceFingerprint.test_fingerprint_survives_a_matching_rerun _______
+
+self = <test_source_staleness.TestSourceFingerprint testMethod=test_fingerprint_survives_a_matching_rerun>
+
+    def test_fingerprint_survives_a_matching_rerun(self):
+        # matching bytes: the fingerprint stays, and the run skips the stills
+>       self.run_cli(["go", str(self.project)], fake=self.fake)
+
+tests/test_source_staleness.py:113: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_review.py:144: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmp_0t5fctb/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ed589bd46e3dfaf9fdf45bd57251edc008f32aefbf0a66b2e64d256e71fdbb78'
+
+src/sprite_pipeline/project.py:199: KeyError
+______ TestSourceFingerprint.test_first_run_writes_the_source_fingerprint ______
+
+self = <test_source_staleness.TestSourceFingerprint testMethod=test_first_run_writes_the_source_fingerprint>
+
+    def test_first_run_writes_the_source_fingerprint(self):
+>       code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_source_staleness.py:100: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_review.py:144: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmp7nkcz5xb/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ed589bd46e3dfaf9fdf45bd57251edc008f32aefbf0a66b2e64d256e71fdbb78'
+
+src/sprite_pipeline/project.py:199: KeyError
+_ TestSourceFingerprint.test_rerun_after_source_change_rewrites_the_fingerprint _
+
+self = <test_source_staleness.TestSourceFingerprint testMethod=test_rerun_after_source_change_rewrites_the_fingerprint>
+
+    def test_rerun_after_source_change_rewrites_the_fingerprint(self):
+>       self.run_cli(["go", str(self.project)], fake=self.fake)
+
+tests/test_source_staleness.py:105: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_review.py:144: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmpdr637jp8/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ed589bd46e3dfaf9fdf45bd57251edc008f32aefbf0a66b2e64d256e71fdbb78'
+
+src/sprite_pipeline/project.py:199: KeyError
+__ TestStaleSourceRebuild.test_r1_changed_source_bytes_rebuild_and_stop_again __
+
+self = <test_source_staleness.TestStaleSourceRebuild testMethod=test_r1_changed_source_bytes_rebuild_and_stop_again>
+
+    def test_r1_changed_source_bytes_rebuild_and_stop_again(self):
+>       self.build_and_approve()
+
+tests/test_source_staleness.py:135: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_source_staleness.py:128: in build_and_approve
+    code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_review.py:144: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmp7b_12ms5/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ed589bd46e3dfaf9fdf45bd57251edc008f32aefbf0a66b2e64d256e71fdbb78'
+
+src/sprite_pipeline/project.py:199: KeyError
+___ TestStaleSourceRebuild.test_r3_repointed_still_path_is_the_same_trigger ____
+
+self = <test_source_staleness.TestStaleSourceRebuild testMethod=test_r3_repointed_still_path_is_the_same_trigger>
+
+    def test_r3_repointed_still_path_is_the_same_trigger(self):
+>       self.build_and_approve()
+
+tests/test_source_staleness.py:155: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_source_staleness.py:128: in build_and_approve
+    code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_review.py:144: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmphg5mmsz7/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ed589bd46e3dfaf9fdf45bd57251edc008f32aefbf0a66b2e64d256e71fdbb78'
+
+src/sprite_pipeline/project.py:199: KeyError
+_____ TestStaleSourceRebuild.test_r7_stale_line_names_the_source_file_path _____
+
+self = <test_source_staleness.TestStaleSourceRebuild testMethod=test_r7_stale_line_names_the_source_file_path>
+
+    def test_r7_stale_line_names_the_source_file_path(self):
+>       self.build_and_approve()
+
+tests/test_source_staleness.py:171: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_source_staleness.py:128: in build_and_approve
+    code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_review.py:144: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmpegbq3nob/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ed589bd46e3dfaf9fdf45bd57251edc008f32aefbf0a66b2e64d256e71fdbb78'
+
+src/sprite_pipeline/project.py:199: KeyError
+__________ TestDryRunStale.test_r2_dry_run_prints_and_deletes_nothing __________
+
+self = <test_source_staleness.TestDryRunStale testMethod=test_r2_dry_run_prints_and_deletes_nothing>
+
+    def test_r2_dry_run_prints_and_deletes_nothing(self):
+>       code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_source_staleness.py:183: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_review.py:144: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmpxewt61p0/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ed589bd46e3dfaf9fdf45bd57251edc008f32aefbf0a66b2e64d256e71fdbb78'
+
+src/sprite_pipeline/project.py:199: KeyError
+___________ TestMatchingBytes.test_r4_matching_bytes_change_nothing ____________
+
+self = <test_source_staleness.TestMatchingBytes testMethod=test_r4_matching_bytes_change_nothing>
+
+    def test_r4_matching_bytes_change_nothing(self):
+        # a run that stops at the review: no stages execute, so the tree is
+        # stable and comparable
+>       self.run_cli(["go", str(self.project)], fake=self.fake)
+
+tests/test_source_staleness.py:209: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_review.py:144: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmpc66w74xx/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ed589bd46e3dfaf9fdf45bd57251edc008f32aefbf0a66b2e64d256e71fdbb78'
+
+src/sprite_pipeline/project.py:199: KeyError
+_________ TestLegacyDirectory.test_legacy_then_changed_source_is_stale _________
+
+self = <test_source_staleness.TestLegacyDirectory testMethod=test_legacy_then_changed_source_is_stale>
+
+    def test_legacy_then_changed_source_is_stale(self):
+        # once the fingerprint exists, a later change is stale, not unknown
+        self.seed_legacy()
+        self.run_cli(["go", str(self.project)], fake=self._fresh_fake())
+        self.still_path().write_bytes(_standing_other())
+>       code, out = self.run_cli(["go", str(self.project)], fake=self._fresh_fake())
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_source_staleness.py:280: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_review.py:144: in run_cli
+    code = cli.main(argv)
+           ^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:421: in main
+    return _go(args, out, load_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sprite_pipeline/cli.py:526: in _go
+    if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
+src/sprite_pipeline/cli.py:190: in run_stills
+    profile = project.anchor_profile(p)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+proj = Project(path=PosixPath('/tmp/tmpqhmaty5_/isometric/project.yaml'), style='2D game sprite art, hand-painted cel shading...t=0, look_down=True, state='attack', seam_max=0.0, directions=['s', 'se', 'e', 'ne', 'n'], workflow=None, canvas=704)])
+profiles = None
+
+    def anchor_profile(proj, profiles=None):
+        """The project's anchor profile (FR 6, FR 14): the profile of the
+        first-listed animation's source GLB. Load checked every distinct source GLB
+        against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+        (a caller that merged the host file) wins over the packaged file."""
+        digest = metrics.glb_sha256(proj.animations[0].source)
+        if profiles is not None and digest in profiles:
+            return profiles[digest]
+>       return packaged_profiles()[digest]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'ed589bd46e3dfaf9fdf45bd57251edc008f32aefbf0a66b2e64d256e71fdbb78'
+
+src/sprite_pipeline/project.py:199: KeyError
+____ TestTwoCharacterIsolation.test_r6_only_the_stale_character_is_rebuilt _____
+
+self = <test_source_staleness.TestTwoCharacterIsolation testMethod=test_r6_only_the_stale_character_is_rebuilt>
+
+    def test_r6_only_the_stale_character_is_rebuilt(self):
+        self.build_both()
+        # The fingerprint is written by `go`, never by `approve`: guard's goes
+        # on record and matches its source bytes — steady state. courier's
+        # source still is then rewritten, so courier is stale: the non-dry run
+        # deletes and rebuilds courier only.
+        cs_guard = next(c for c in self.proj.characters if c.name == "guard")
+        self.ctx_guard.write_source_hash("guard", cs_guard)
+        self.assertTrue(self.ctx_guard.is_approved("guard"))
+        self.assertFalse(self.ctx_guard.source_stale("guard", cs_guard))
+        # courier needs a fingerprint on record before its source can go stale
+        # (a hashless directory is unknown, not stale): write the old one
+        cs_courier = next(c for c in self.proj.characters if c.name == "courier")
+        self.ctx().write_source_hash("courier", cs_courier)
+        self.still_path().write_bytes(_standing_other())
+        self.assertTrue(self.ctx().source_stale("courier", cs_courier))
+        guard_before = {p: p.read_bytes()
+                        for p in self.out_guard.rglob("*") if p.is_file()}
+        # narrow to guard's already-complete stage set (drive..loop): the row
+        # is about which character the purge touched, not about driving the
+        # faked pipeline through an export the stub frames never satisfy
+        fake = self._fresh_fake()
+        code, out = self.run_cli(["go", str(self.project), "--stage", "drive",
+                                  "--animations", "run", "--dirs", "s"],
+                                 fake=fake)
+        self.assertEqual(code, 0, out)
+        # courier: purged, its stills redone from the new source, stopped for
+        # the review again with the approve command
+>       self.assertIn(f"[courier] stale source still: {self.still_path()}", out)
+E       AssertionError: '[courier] stale source still: /tmp/tmp7n22v6cs/isometric/stills/courier.png' not found in '[run/s] drive=ok\n[run/s] drive=ok\n\nsummary\nmove/dir      drive    \nrun/s         ok       \nall stages ok\n'
+
+tests/test_source_staleness.py:341: AssertionError
+_____ TestDryRunNeedsNothing.test_exit_zero_still_preparation_and_summary ______
+
+self = <test_stages.TestDryRunNeedsNothing testMethod=test_exit_zero_still_preparation_and_summary>
+
+    def test_exit_zero_still_preparation_and_summary(self):
+        code, out = self.run_cli(["go", str(self.f.project), "--dry-run"])
+        self.assertEqual(code, 0, out)
+>       self.assertIn(str(self.f.base / "out" / "courier" / "master" / "se.png"), out)
+E       AssertionError: '/tmp/tmp1wviu0y4/isometric/out/courier/master/se.png' not found in '[courier] still preparation: anchor /tmp/tmp1wviu0y4/isometric/stills/courier.png -> /tmp/tmp1wviu0y4/isometric/out/courier/master/s.png (python; then sprite-gen cutout --key measured)\n[courier/se] direction edit (edit): /data/worktrees/sprite-pipeline/sprite-pipeline-34/src/sprite_pipeline/workflows/edit.json on the anchored master (s.png) (kept facing the lower right of the image, toward...)\n[courier/e] direction edit (edit): /data/worktrees/sprite-pipeline/sprite-pipeline-34/src/sprite_pipeline/workflows/edit.json on the anchored master (s.png) (turned to face directly toward the right side of...)\n[courier/ne] direction edit (edit): /data/worktrees/sprite-pipeline/sprite-pipeline-34/src/sprite_pipeline/workflows/edit.json on the anchored master (s.png) (turned away from the camera, facing toward the u...)\n[courier/n] direction edit (edit): /data/worktrees/sprite-pipeline/sprite-pipeline-34/src/sprite_pipeline/workflows/edit.json on the anchored master (s.png) (turned fully away from the camera, facing straig...)\n[courier] review stop: unapproved: stills missing s, se, e, ne, n; after checking /tmp/tmp1wviu0y4/isometric/out/courier/refs-sheet.png run: sprite-pipeline approve /tmp/tmp1wviu0y4/isometric/project.yaml courier\n\nsummary\nmove/dir      drive    animate  key      loop     \n[courier] stopped for review: sprite-pipeline approve /tmp/tmp1wviu0y4/isometric/project.yaml courier\ndry run complete\n'
+
+tests/test_stages.py:171: AssertionError
+____________ TestDryRunNeedsNothing.test_four_direction_edit_lines _____________
+
+self = <test_stages.TestDryRunNeedsNothing testMethod=test_four_direction_edit_lines>
+
+    def test_four_direction_edit_lines(self):
+        code, out = self.run_cli(["go", str(self.f.project), "--dry-run"])
+        for d in ("s", "e", "ne", "n"):
+>           self.assertIn(f"[courier/{d}] direction edit", out)
+E           AssertionError: '[courier/s] direction edit' not found in '[courier] still preparation: anchor /tmp/tmpde7g0nj3/isometric/stills/courier.png -> /tmp/tmpde7g0nj3/isometric/out/courier/master/s.png (python; then sprite-gen cutout --key measured)\n[courier/se] direction edit (edit): /data/worktrees/sprite-pipeline/sprite-pipeline-34/src/sprite_pipeline/workflows/edit.json on the anchored master (s.png) (kept facing the lower right of the image, toward...)\n[courier/e] direction edit (edit): /data/worktrees/sprite-pipeline/sprite-pipeline-34/src/sprite_pipeline/workflows/edit.json on the anchored master (s.png) (turned to face directly toward the right side of...)\n[courier/ne] direction edit (edit): /data/worktrees/sprite-pipeline/sprite-pipeline-34/src/sprite_pipeline/workflows/edit.json on the anchored master (s.png) (turned away from the camera, facing toward the u...)\n[courier/n] direction edit (edit): /data/worktrees/sprite-pipeline/sprite-pipeline-34/src/sprite_pipeline/workflows/edit.json on the anchored master (s.png) (turned fully away from the camera, facing straig...)\n[courier] review stop: unapproved: stills missing s, se, e, ne, n; after checking /tmp/tmpde7g0nj3/isometric/out/courier/refs-sheet.png run: sprite-pipeline approve /tmp/tmpde7g0nj3/isometric/project.yaml courier\n\nsummary\nmove/dir      drive    animate  key      loop     \n[courier] stopped for review: sprite-pipeline approve /tmp/tmpde7g0nj3/isometric/project.yaml courier\ndry run complete\n'
+
+tests/test_stages.py:179: AssertionError
+_________ TestStillPreparation.test_r1_500x700_still_scaled_and_padded _________
+
+self = <test_stills.TestStillPreparation testMethod=test_r1_500x700_still_scaled_and_padded>
+
+    def test_r1_500x700_still_scaled_and_padded(self):
+        """AC3-r1: 500×700 still with corner colour (10,200,10) → 1280×1280
+        output; still scaled to fit 832×1024 keeping aspect (731×1024) and
+        centred; every pixel outside it is (10,200,10)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            src = tmp / "src.png"
+            dst = tmp / "dst.png"
+            im = _make_still(500, 700, corner=(10, 200, 10))
+            _save_still(im, src)
+>           stills.prepare(str(src), str(dst))
+            ^^^^^^^^^^^^^^
+E           AttributeError: module 'sprite_pipeline.stills' has no attribute 'prepare'
+
+tests/test_stills.py:42: AttributeError
+_________ TestStillPreparation.test_r2_832x1024_still_pasted_unscaled __________
+
+self = <test_stills.TestStillPreparation testMethod=test_r2_832x1024_still_pasted_unscaled>
+
+    def test_r2_832x1024_still_pasted_unscaled(self):
+        """AC3-r2: exactly 832×1024 still → pasted unscaled at (224,128)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            src = tmp / "src.png"
+            dst = tmp / "dst.png"
+            im = _make_still(832, 1024, corner=(50, 100, 150))
+            _save_still(im, src)
+>           stills.prepare(str(src), str(dst))
+            ^^^^^^^^^^^^^^
+E           AttributeError: module 'sprite_pipeline.stills' has no attribute 'prepare'
+
+tests/test_stills.py:69: AttributeError
+_____________ TestStillPreparation.test_r3_2000x1000_still_scaled ______________
+
+self = <test_stills.TestStillPreparation testMethod=test_r3_2000x1000_still_scaled>
+
+    def test_r3_2000x1000_still_scaled(self):
+        """AC3-r3: 2000×1000 still → scaled to 832×416, centred."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            src = tmp / "src.png"
+            dst = tmp / "dst.png"
+            im = _make_still(2000, 1000, corner=(200, 50, 100))
+            _save_still(im, src)
+>           stills.prepare(str(src), str(dst))
+            ^^^^^^^^^^^^^^
+E           AttributeError: module 'sprite_pipeline.stills' has no attribute 'prepare'
+
+tests/test_stills.py:86: AttributeError
+_______ TestPrepareUnchangedAndFit.test_fit_is_832x1024_with_corner_fill _______
+
+self = <test_stills.TestPrepareUnchangedAndFit testMethod=test_fit_is_832x1024_with_corner_fill>
+
+    def test_fit_is_832x1024_with_corner_fill(self):
+        for w, h in ((600, 900), (1000, 700)):
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp = Path(tmp)
+>               out = stills.fit(self._src(tmp, w, h), tmp / "fit.png")
+                      ^^^^^^^^^^
+E               AttributeError: module 'sprite_pipeline.stills' has no attribute 'fit'
+
+tests/test_stills.py:134: AttributeError
+___ TestPrepareUnchangedAndFit.test_prepare_output_identical_to_pre_refactor ___
+
+self = <test_stills.TestPrepareUnchangedAndFit testMethod=test_prepare_output_identical_to_pre_refactor>
+
+    def test_prepare_output_identical_to_pre_refactor(self):
+        for w, h in ((600, 900), (1000, 700), (832, 1024)):
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp = Path(tmp)
+                src = self._src(tmp, w, h)
+>               _legacy_prepare(src, tmp / "old.png")
+
+tests/test_stills.py:125: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+src = PosixPath('/tmp/tmpcly6744u/src.png')
+dst = PosixPath('/tmp/tmpcly6744u/old.png')
+
+    def _legacy_prepare(src, dst):
+        """The pre-refactor prepare, kept verbatim as the byte-for-byte oracle."""
+        im = Image.open(src).convert("RGB")
+        w, h = im.size
+        scale = min(stills.STILL_SIZE[0] / w, stills.STILL_SIZE[1] / h)
+        new_w, new_h = round(w * scale), round(h * scale)
+        im = im.resize((new_w, new_h), Image.LANCZOS)
+>       canvas = Image.new("RGB", (stills.REF_SIZE, stills.REF_SIZE), im.getpixel((0, 0)))
+                                   ^^^^^^^^^^^^^^^
+E       AttributeError: module 'sprite_pipeline.stills' has no attribute 'REF_SIZE'
+
+tests/test_stills.py:108: AttributeError
+=========================== short test summary info ============================
+FAILED tests/test_anchor.py::AnchorCase::test_r2_other_frame_sizes_follow_the_rule
+FAILED tests/test_anchor.py::TestProfileGate::test_r4_a_profiled_glb_passes_the_gate
+FAILED tests/test_anchor.py::TestProfileGate::test_r4_dry_run_needs_no_profiled_glb
+FAILED tests/test_anchor.py::TestProfileGate::test_r4_unprofiled_glb_exit_2_prints_prefix_and_command
+FAILED tests/test_anchor.py::TestEditConsumesTheAnchoredMaster::test_r5_direction_stills_keep_the_edit_canvas
+FAILED tests/test_anchor.py::TestEditConsumesTheAnchoredMaster::test_r5_edit_image_is_the_anchored_master
+FAILED tests/test_anchor.py::TestEditConsumesTheAnchoredMaster::test_r5_keyed_file_is_master_s_keyed_png
+FAILED tests/test_anchor.py::TestEditConsumesTheAnchoredMaster::test_r5_no_se_fit_file_is_prepared_anymore
+FAILED tests/test_anchor.py::TestMannequinProfileCommand::test_render_mannequin_fails_loudly_when_no_frame_lands
+FAILED tests/test_comfy_cli.py::TestGoRealEditAtHTTPSeam::test_r5_exactly_four_edits_and_no_animate
+FAILED tests/test_comfy_cli.py::TestGoRealEditAtHTTPSeam::test_r5_exit_zero_prints_approve_command
+FAILED tests/test_comfy_cli.py::TestComfyEdit::test_r6_edit_fills_slots_copies_output
+FAILED tests/test_comfy_cli.py::TestComfyAnimateRefName::test_r7_ref_image_is_the_uploaded_name
+FAILED tests/test_comfy_cli.py::TestComfyEditMissingSlot::test_r8_missing_sp_seed_is_an_error
+FAILED tests/test_hygiene.py::TestSharedStillPlan::test_prepare_happens_once_before_the_edits_in_a_real_run
+FAILED tests/test_hygiene.py::TestSharedStillPlan::test_steps_are_prepare_then_generated_minus_se_in_order
+FAILED tests/test_project.py::TestExampleProject::test_matches_the_motion_library_at_base
+FAILED tests/test_review.py::TestFirstRunStopsForReview::test_r1_default_seed_is_the_project_seed
+FAILED tests/test_review.py::TestFirstRunStopsForReview::test_r1_edit_targets_the_edit_workflow
+FAILED tests/test_review.py::TestFirstRunStopsForReview::test_r1_four_edit_calls_pinned_prompts_exit_zero_with_approve_command
+FAILED tests/test_review.py::TestFirstRunStopsForReview::test_r1_no_se_edit_call
+FAILED tests/test_review.py::TestDirectionStillsShareTheReferenceCanvas::test_edit_output_is_placed_like_prepare_with_corner_fill
+FAILED tests/test_review.py::TestFitStillIsNotADirectionStill::test_edit_image_is_832x1024_and_regenerated_on_force
+FAILED tests/test_review.py::TestPronounThey::test_r2_prompts_use_them_their
+FAILED tests/test_review.py::TestRerunSkipsExistingStills::test_r3_force_redoes_the_edits
+FAILED tests/test_review.py::TestRerunSkipsExistingStills::test_r3_zero_edit_calls_stops_again
+FAILED tests/test_review.py::TestApproveThenContinue::test_r1_an_existing_run_made_of_go_approve_go
+FAILED tests/test_review.py::TestReroll::test_r3_reroll_one_edit_seed_2_stops_again
+FAILED tests/test_source_staleness.py::TestSourceFingerprint::test_fingerprint_survives_a_matching_rerun
+FAILED tests/test_source_staleness.py::TestSourceFingerprint::test_first_run_writes_the_source_fingerprint
+FAILED tests/test_source_staleness.py::TestSourceFingerprint::test_rerun_after_source_change_rewrites_the_fingerprint
+FAILED tests/test_source_staleness.py::TestStaleSourceRebuild::test_r1_changed_source_bytes_rebuild_and_stop_again
+FAILED tests/test_source_staleness.py::TestStaleSourceRebuild::test_r3_repointed_still_path_is_the_same_trigger
+FAILED tests/test_source_staleness.py::TestStaleSourceRebuild::test_r7_stale_line_names_the_source_file_path
+FAILED tests/test_source_staleness.py::TestDryRunStale::test_r2_dry_run_prints_and_deletes_nothing
+FAILED tests/test_source_staleness.py::TestMatchingBytes::test_r4_matching_bytes_change_nothing
+FAILED tests/test_source_staleness.py::TestLegacyDirectory::test_legacy_then_changed_source_is_stale
+FAILED tests/test_source_staleness.py::TestTwoCharacterIsolation::test_r6_only_the_stale_character_is_rebuilt
+FAILED tests/test_stages.py::TestDryRunNeedsNothing::test_exit_zero_still_preparation_and_summary
+FAILED tests/test_stages.py::TestDryRunNeedsNothing::test_four_direction_edit_lines
+FAILED tests/test_stills.py::TestStillPreparation::test_r1_500x700_still_scaled_and_padded
+FAILED tests/test_stills.py::TestStillPreparation::test_r2_832x1024_still_pasted_unscaled
+FAILED tests/test_stills.py::TestStillPreparation::test_r3_2000x1000_still_scaled
+FAILED tests/test_stills.py::TestPrepareUnchangedAndFit::test_fit_is_832x1024_with_corner_fill
+FAILED tests/test_stills.py::TestPrepareUnchangedAndFit::test_prepare_output_identical_to_pre_refactor
+45 failed, 200 passed in 114.19s (0:01:54)

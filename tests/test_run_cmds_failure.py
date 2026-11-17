@@ -15,8 +15,21 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
+import mannequins
+
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = ROOT / "examples" / "isometric"
+
+
+def _standing_png():
+    """A PNG the FR 6 standing rule accepts: a flat background with a figure
+    300 px tall, 200 wide, feet 10 px from the bottom (the test mannequin)."""
+    import io
+
+    from mannequins import standing_still
+    buf = io.BytesIO()
+    standing_still().save(buf, format="PNG")
+    return buf.getvalue()
 
 
 def _make_tiny_png():
@@ -88,7 +101,9 @@ class Env(unittest.TestCase):
         for rel in ("stills/courier.png", "anims/ual.glb"):
             f = base / rel
             f.parent.mkdir(parents=True, exist_ok=True)
-            f.write_bytes(_make_tiny_png())
+            f.write_bytes(_standing_png() if rel.startswith("stills/")
+                          else _make_tiny_png())
+        mannequins.register(_make_tiny_png(), glb_name="ual.glb")
         # copy workflow files
         wf_dir = base / "workflows"
         wf_dir.mkdir(parents=True, exist_ok=True)

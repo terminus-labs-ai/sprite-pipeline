@@ -21,7 +21,7 @@ import shutil
 import subprocess
 import sys
 
-from sprite_pipeline import config, project, stages, stills
+from sprite_pipeline import config, metrics, project, stages, stills
 
 
 def _narrow(values, allowed, flag):
@@ -63,8 +63,9 @@ def rerolls_for(rerolls, chars):
 def resolve_run(project_path, args):
     """The project (paths relative to the file), the narrowed character,
     animation and direction sets, the rerolls and the host config.
-    Raises ValueError (exit 2)."""
-    proj = project.load_project(project_path)
+    The profile gate (FR 4) reads the packaged mannequin profiles merged with
+    the host file (FR 14, last-write-wins per hash). Raises ValueError (exit 2)."""
+    proj = project.load_project(project_path, profiles=args.get("profiles"))
     if args["characters"]:
         # excluding every character is valid (nothing runs), only unknown *and*
         # unmatched names are errors
@@ -99,13 +100,27 @@ def resolve_run(project_path, args):
     return proj, config.load(), chars, [a.name for a in anims], dirs, rerolls
 
 
+def _prepares_stills(args):
+    """Whether this run does any still work at all (FR 6, FR 10): `--stage`
+    over a pair or kit stage runs only that stage, and a character already
+    approved continues past the still work (its skip-if-exists holds) unless
+    --force names it again. Used for the FR 6 standing-figure gate and to
+    scope the FR 10 stale-source purge: a run that does no still work
+    neither measures a source image nor deletes a character's outputs."""
+    if args["stage"] is not None:
+        return False
+    if args["no_stop"]:
+        return args["force"]
+    return True
+
+
 def _print_plan_line(char, stage, argv, out):
     """One planned command: the `stage=<stage>` field names the stage and the
     `(label)` field names the tool; the full argv follows after two spaces."""
     if argv[0] == "copy_file":  # in-process step, never a subprocess
         print(f"[{char}] stage={stage} (python copy)  {argv[1]} -> {argv[2]}", file=out)
         return
-    if argv[0] == "pad_still":  # in-process step, never a subprocess
+    if argv[0] == "pad_ref":  # in-process step, never a subprocess
         print(f"[{char}] stage={stage} (python pad {argv[3]} on {argv[4]})  {argv[1]} -> {argv[2]}", file=out)
         return
     print(f"[{char}] stage={stage} (cmd)  "
@@ -114,17 +129,19 @@ def _print_plan_line(char, stage, argv, out):
 
 def still_plan(proj, char):
     """The still work one character needs, in run order: the prepare step
-    first (the master `se` still and its keyed copy), then one direction edit
-    per generated direction other than se — the still's own direction keeps
-    the prepared image. The shared definition of that loop behind
+    first (the anchored master — the still's own direction, `generate[0]`,
+    FR 6 — and its keyed copy), then one direction edit per generated
+    direction other than the master's — the still's own direction keeps the
+    anchored image. The shared definition of that loop behind
     `_print_still_plan` (the dry-run plan) and `run_stills` (the real run),
     so the two can never disagree about which steps exist or their order."""
     cs = next(c for c in proj.characters if c.name == char)
+    still_dir = proj.still_dir
     steps = [{"kind": "prepare", "char": char, "src": cs.still,
-              "dst": None, "turn": "", "dir": "se"}]
+              "dst": None, "turn": "", "dir": still_dir}]
     turn = project.load_view(proj.view)["turn"]
     for d in proj.generate:
-        if d == "se":
+        if d == still_dir:
             continue
         steps.append({"kind": "edit", "char": char, "src": None,
                       "dst": None, "turn": turn[d], "dir": d})
@@ -132,50 +149,57 @@ def still_plan(proj, char):
 
 
 def _print_still_plan(proj, ctx, char, reroll, force, out):
-    """FR 1 dry-run lines: the still preparation and one line per direction
+    """FR 1 dry-run lines: the still anchoring and one line per direction
     edit (skip marked; --reroll and --force plan the step again)."""
     cs = next(c for c in proj.characters if c.name == char)
+    still_dir = proj.still_dir
+    master = ctx.dir_still(char, still_dir)
     for step in still_plan(proj, char):
         if step["kind"] == "prepare":
-            se = ctx.dir_still(char, "se")
-            pre = ("prepare" if (force or reroll.get("se") is not None
-                                 or not se.is_file()) else "skip")
-            print(f"[{char}] still preparation: {pre} {cs.still} -> {se} "
+            pre = ("anchor" if (force or reroll.get(still_dir) is not None
+                                or not master.is_file()) else "skip")
+            print(f"[{char}] still preparation: {pre} {cs.still} -> {master} "
                   f"(python; then sprite-gen cutout --key measured)", file=out)
         else:
             d = step["dir"]
             edit = "edit" if (force or reroll.get(d) is not None
                               or not ctx.dir_still(char, d).is_file()) else "skip"
             print(f"[{char}/{d}] direction edit ({edit}): {proj.workflows['edit']} on the "
-                  f"fitted still (se.fit.png) ({step['turn'][:48]}...)", file=out)
+                  f"anchored master ({master.name}) ({step['turn'][:48]}...)", file=out)
 
 
 def run_stills(ctx, turn, char, reroll, force, log, out):
-    """FR 6 + FR 7: prepare the still, key the SE still for the palette, then
-    one edit per generated direction other than se, each padded onto the
-    reference canvas like the SE still (skip-if-exists; a reroll forces its
-    direction). Walks `still_plan`, the shared loop behind the dry-run plan.
-    Returns False if a step failed."""
+    """FR 6 + FR 7: anchor the still to the mannequin profile onto the master
+    (`master/<still_dir>.png`, the first generated direction), key the master
+    for the palette, then one edit per generated direction other than the
+    master's, each run on the anchored master (skip-if-exists; a reroll
+    forces its direction). Walks `still_plan`, the shared loop behind the
+    dry-run plan. Returns False if a step failed."""
     p = ctx.project
     cs = next(c for c in p.characters if c.name == char)
-    se = ctx.dir_still(char, "se")
+    # FR 6: the master is the anchored still: the edit input for every other
+    # direction and the palette source (its keyed cutout is
+    # `master/<still_dir>.keyed.png`). No direction ever receives the source
+    # still under its own name: each stays its own edit's output.
+    sd = p.still_dir
+    master = ctx.dir_still(char, sd)
+    keyed = ctx.master(char) / f"{sd}.keyed.png"
     ok = True
+    # FR 14: the profile of the first-listed animation's GLB anchors the
+    # stills: the packaged profiles merged with the host file
+    profile = project.anchor_profile(p)
 
     def forced(path):
-        return force or not path.is_file()
+        return force or reroll.get(sd) is not None or not path.is_file()
 
-    # the edit's input: the fitted 832x1024 still (the edit's output latent size),
-    # not a direction still; prepared whenever the SE still is
-    fit_png = ctx.master(char) / "se.fit.png"
     for step in still_plan(p, char):
         if step["kind"] == "prepare":
-            if forced(se):
-                print(f"[{char}] still preparation: prepare {cs.still} -> {se}", file=out)
-                stills.prepare(cs.still, se)
-            if forced(se) or not fit_png.is_file():
-                stills.fit(cs.still, fit_png)
-            if forced(ctx.master(char) / "se.keyed.png"):
-                cmds = stages.plan_cutout(se, ctx.master(char))
+            if forced(master):
+                print(f"[{char}] still preparation: anchor {cs.still} -> {master}",
+                      file=out)
+                stills.anchor(cs.still, master, p.sprite.frame_size, profile)
+            if force or reroll.get(sd) is not None or not keyed.is_file():
+                cmds = stages.plan_cutout(master, ctx.master(char))
                 ok = run_cmds(ctx, cmds, log, out) and ok
             # FR 10 amendment 2: fingerprint the source still whenever the
             # stills are prepared (also refreshes a missing/legacy hash)
@@ -187,15 +211,19 @@ def run_stills(ctx, turn, char, reroll, force, log, out):
             if dst.is_file() and reroll.get(d) is None and not force:
                 continue  # skip-if-exists (FR 10)
             prompt = stills.dir_prompt(turn, d, cs.pronoun)
+            # the edit input is the anchored 832x1024 master itself (FR 6):
             # absolute, resolved at load (FR 1, amendment 1)
             argv = [sys.executable, "-m", "sprite_pipeline.comfy", "edit",
-                    "--workflow", str(p.workflows["edit"]), "--image", str(fit_png),
+                    "--workflow", str(p.workflows["edit"]), "--image", str(master),
                     "--prompt", prompt, "--seed", str(seed),
                     "--prefix", f"{char}/dir-{d}", "--copy-to", str(dst)]
             print(f"[{char}/{d}] direction edit: seed {seed}", file=out)
             if run_cmds(ctx, [(argv, "edit")], log, out):
-                # same canvas and scale as the prepared SE still (padding in place)
-                stills.prepare(dst, dst)
+                # the edit ran on the 832x1024 master, so its output comes
+                # back on that canvas and is already the direction's still:
+                # nothing is copied a second time (skip-if-exists, FR 10,
+                # and `se.png` is written once by the anchor step above)
+                pass
             else:
                 ok = False
     return ok
@@ -214,8 +242,8 @@ def run_cmds(ctx, cmds, log, out=None):
         if cmd_argv[0] == "copy_file":
             stages.copy_file(cmd_argv[1], cmd_argv[2], log)
             continue
-        if cmd_argv[0] == "pad_still":
-            stages.pad_still(*cmd_argv[1:], log)
+        if cmd_argv[0] == "pad_ref":
+            stages.pad_ref(*cmd_argv[1:], log)
             continue
         log.append("$ " + " ".join(stages.quote(x) for x in cmd_argv))
         r = subprocess.run(cmd_argv, env=ctx.env, capture_output=True, text=True)
@@ -235,12 +263,12 @@ def run_cmds(ctx, cmds, log, out=None):
     return ok
 
 
-def cmd_approve(args, out):
+def cmd_approve(args, out, **load_kwargs):
     """`sprite-pipeline approve <project.yaml> <character>`: record the review
     (FR 8). refs.approved holds the hash of the direction stills; exit 2 with
     the missing stills named if any does not exist yet."""
     try:
-        proj = project.load_project(args["project_file"])
+        proj = project.load_project(args["project_file"], profiles=load_kwargs.get("profiles"))
     except ValueError as e:
         print(f"project error: {e}", file=sys.stderr)
         return 2
@@ -262,10 +290,95 @@ def cmd_approve(args, out):
     return 0
 
 
-def main(argv=None, out=None):
+def render_mannequin(glb):
+    """Render the GLB's `A_TPose` at the drive resolution 704 with the drive
+    camera (facing `s`, elevation 45°, ortho 3.0 — the same camera and scene
+    the drive plan uses) into a temporary directory. Returns the path of the
+    rendered frame. Needs Blender and the host config (FR 14)."""
+    import tempfile
+
+    from PIL import Image
+
+    # a stand-in project for the drive plan: the drive resolution, the
+    # drive-key's rig defaults, and Project.drive_key itself (the cache key
+    # over the GLB bytes, action and drive params)
+    from sprite_pipeline.project import Project
+    ctx = stages.StageCtx(Project(path=Path.cwd(), style="", view="isometric",
+                                  generate=["s"], mirror={},
+                                  sprite=project.Sprite(scale=1.0, colors=40,
+                                                        accent_boost=3, fps=30,
+                                                        frame_size=metrics.DRIVE_RES),
+                                  naming="{animation}_{dir}", export="godot",
+                                  seed=0, pose_strength=1.0, output=Path("out"),
+                                  rig={"neck": "DEF-neck", "head": "DEF-head"},
+                                  workflows={}, characters=[], animations=[]),
+                          config.load())
+    frames = Path(tempfile.mkdtemp(prefix="sp-tpose-")) / "frames"
+    frames.mkdir(parents=True)
+    anim = project.Animation(name="A_TPose", source=Path(glb), action="A_TPose",
+                             frames=1, loop=False, prompt="")
+    cmds = ctx.plan_pair("mannequin", anim, "s", "drive")
+    log = []
+    if not run_cmds(ctx, cmds, log):
+        raise SystemExit(f"mannequin-profile: rendering {glb} failed")
+    # measure from the frames dir the plan's blender step actually writes
+    # into (the motion-cache one), not the local dir: when no frame lands,
+    # this raises SystemExit below instead of failing at the first shot open
+    frames = ctx.frames_dir("mannequin", anim, "s")
+    shots = sorted(frames.glob("f*.png"))
+    if not shots:
+        # the fake renderer wrote nothing where the plan pointed: nothing to
+        # measure, so the render failed
+        raise SystemExit(f"mannequin-profile: no render of {glb} landed in {frames}")
+    # a drive is many frames; the profile's pose is the first held frame
+    img = Image.open(shots[0])
+    shot = frames / "A_TPose.png"
+    img.save(shot)
+    return shot
+
+
+def cmd_mannequin_profile(args, out):
+    """`sprite-pipeline mannequin-profile <glb>` (FR 14, amendment 4): render
+    the GLB's A_TPose at 704 with the drive camera, measure it and append the
+    entry to the host profile file, replacing an existing entry for the same
+    hash. Prints the measured JSON."""
+    import json
+
+    glb = Path(args["glb"])
+    if not glb.is_file():
+        print(f"mannequin-profile: {glb} not found", file=sys.stderr)
+        return 2
+    shot = render_mannequin(glb)
+    m = metrics.measure(shot)
+    entry = {"glb_name": glb.name, "resolution": metrics.DRIVE_RES,
+             "body_h": m["body_h"], "floor_y": m["floor_y"]}
+    digest = metrics.glb_sha256(glb)
+    path = project.user_profiles_path()
+    try:
+        doc = __import__("json").loads(path.read_text())
+        if not isinstance(doc, dict):
+            doc = {}
+    except (OSError, ValueError):
+        doc = {}
+    profiles = doc.get("profiles")
+    if not isinstance(profiles, dict):
+        profiles = {}
+    profiles[digest] = entry  # last write wins: an existing same-hash entry is replaced
+    doc["profiles"] = profiles
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(doc, indent=2) + "\n")
+    print(json.dumps(entry), file=out)
+    return 0
+
+
+def main(argv=None, out=None, **load_kwargs):
+    """Run one `sprite-pipeline` command. `load_kwargs.profiles` passes through
+    to `project.load_project`: the profile map the gate (FR 4) reads, when a
+    caller supplies one instead of the packaged file."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0],
                                  prog="sprite-pipeline")
     sub = ap.add_subparsers(dest="command", required=True)
+
     g = sub.add_parser("go", help="run the sprite job of a project file")
     g.add_argument("project_file", help="path to project.yaml")
     g.add_argument("--characters", help="comma-separated character names")
@@ -283,6 +396,10 @@ def main(argv=None, out=None):
     # every word after the command name verbatim in approve_args.
     p = sub.add_parser("approve", help="approve a character's direction stills")
     p.add_argument("approve_args", nargs=argparse.REMAINDER)
+    mp = sub.add_parser("mannequin-profile",
+                        help="render + measure a GLB's A_TPose at 704 and append "
+                             "its mannequin profile to the host profile file")
+    mp.add_argument("glb", help="path to the source .glb")
     a = ap.parse_args(argv)
     args = vars(a)
 
@@ -290,18 +407,63 @@ def main(argv=None, out=None):
         rest = list(args["approve_args"])
         if len(rest) != 2 or any(x.startswith("-") for x in rest):
             ap.error("usage: sprite-pipeline approve <project.yaml> <character>")
-        return cmd_approve({"project_file": rest[0], "character": rest[1]}, out)
+        return cmd_approve({"project_file": rest[0], "character": rest[1]}, out, **load_kwargs)
+
+    if a.command == "mannequin-profile":
+        try:
+            return cmd_mannequin_profile(args, out)
+        except SystemExit:
+            raise
+        except (ValueError, OSError) as e:
+            print(f"mannequin-profile: {e}", file=sys.stderr)
+            return 2
+
+    return _go(args, out, load_kwargs)
+
+
+def _go(args, out, load_kwargs=None):
+    """The `go` command (sprite-pipeline-32's scope): the plan, the FR 6
+    standing-figure and FR 4 profile gates, the still work and the stages."""
+    if load_kwargs is None:
+        load_kwargs = {}
+    out = out or sys.stdout
 
     force = args["force"]
+    args["profiles"] = load_kwargs.get("profiles")
     try:
         proj, cfg, chars, anim_names, dirs, rerolls = resolve_run(args["project_file"], args)
-    except ValueError as e:
+        # FR 6: a character's still must be an A- or T-pose standing figure —
+        # checked before any output is touched, so a bad still exits 2 naming
+        # the file and the failed rule. Only when this run prepares stills: a
+        # narrowed run (--stage, or --no-stop over approved stills) never
+        # touches the source image.
+        if not args["dry_run"] and _prepares_stills(args):
+            # skip-if-exists (FR 10): a character whose direction stills all
+            # exist does no still work this run, so its source image is not
+            # measured — only the characters that would prepare stills are
+            check_ctx = stages.StageCtx(proj, cfg)
+            for name in chars:
+                if not check_ctx.missing_stills(name):
+                    continue
+                cs = next(c for c in proj.characters if c.name == name)
+                # FigureError (a failed rule, naming the file) is a ValueError;
+                # any other read error (not an image at all) is reported as
+                # the same exit-2 project error, never a traceback
+                try:
+                    stills.check(cs.still)
+                except ValueError:
+                    raise
+                except Exception as e:
+                    raise ValueError(f"{cs.still}: {e.__class__.__name__}: "
+                                     f"{e}") from e
+    except (ValueError, metrics.FigureError) as e:
         print(f"project error: {e}", file=sys.stderr)
         return 2
     selected = stages.STAGES if not args["stage"] else [args["stage"]]
     pair_stages = [s for s in selected if s in stages.PAIR_STAGES]
     kit_stages = [s for s in selected if s in stages.KIT_STAGES]
     dry = args["dry_run"]
+    prepares = _prepares_stills(args)
     ctx = stages.StageCtx(proj, cfg)
     log, status, failed, stopped = [], {}, [], []
 
@@ -312,13 +474,19 @@ def main(argv=None, out=None):
         # approval and every derived clip, loop and export.
         char_out = ctx.project.output_root() / char
         if char_out.is_dir() and ctx.source_stale(char, cs):
-            print(f"[{char}] stale source still: {cs.still}", file=out)
-            if not dry:
-                ctx.drop_char_outputs(char)
-            else:
-                print(f"[{char}] stale: rebuild planned, no deletion (--dry-run)",
-                      file=out)
-        elif char_out.is_dir() and ctx.recorded_source_hash(char) is None:
+            # FR 10: the character is stale whenever its source bytes changed.
+            # A run that does still work (no --stage) purges the outputs —
+            # a --dry-run plans the purge and deletes nothing; a narrowed run
+            # (--stage) never touches another run's outputs or prints, and
+            # simply rebuilds what that stage needs from the new source.
+            if prepares:
+                print(f"[{char}] stale source still: {cs.still}", file=out)
+                if not dry:
+                    ctx.drop_char_outputs(char)
+                else:
+                    print(f"[{char}] stale: rebuild planned, no deletion "
+                          f"(--dry-run)", file=out)
+        elif prepares and char_out.is_dir() and ctx.recorded_source_hash(char) is None:
             # a legacy output directory carries no usable fingerprint (no file,
             # unreadable, or blank): record the current source's hash and keep
             # the outputs (unknown, not stale)

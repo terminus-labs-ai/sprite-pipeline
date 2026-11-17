@@ -22,6 +22,8 @@ from pathlib import Path
 
 from PIL import Image
 
+import mannequins
+
 from sprite_pipeline import config, project, stages
 from tests.test_review import (GEN_DIRS, TINY_PNG, ReviewFixture,
                                make_stub_project)
@@ -36,6 +38,18 @@ CHANGED_PNG = bytes.fromhex(
 
 def sha256(b):
     return hashlib.sha256(b).hexdigest()
+
+
+def _standing_other():
+    """A *different* valid standing-figure still (changed source bytes): flat
+    background, figure 320 px tall x 180 wide, feet 12 px from the bottom."""
+    import io
+
+    from mannequins import pose_frame
+    buf = io.BytesIO()
+    pose_frame(520, 920, body_h=320, body_w=180, feet_from_bottom=12,
+               corner=(20, 90, 200), colour=(240, 60, 60)).save(buf, format="PNG")
+    return buf.getvalue()
 
 
 def _add_guard(tmp, still):
@@ -89,10 +103,10 @@ class TestSourceFingerprint(StalenessFixture):
 
     def test_rerun_after_source_change_rewrites_the_fingerprint(self):
         self.run_cli(["go", str(self.project)], fake=self.fake)
-        self.still_path().write_bytes(CHANGED_PNG)
+        self.still_path().write_bytes(_standing_other())
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
         self.assertEqual(code, 0, out)
-        self.assert_fingerprint(CHANGED_PNG)
+        self.assert_fingerprint(self.still_path().read_bytes())
 
     def test_fingerprint_survives_a_matching_rerun(self):
         # matching bytes: the fingerprint stays, and the run skips the stills
@@ -120,15 +134,15 @@ class TestStaleSourceRebuild(StalenessFixture):
     def test_r1_changed_source_bytes_rebuild_and_stop_again(self):
         self.build_and_approve()
         fingerprint = self.source_hash_file().read_text().strip()
-        self.still_path().write_bytes(CHANGED_PNG)  # changed file
+        self.still_path().write_bytes(_standing_other())  # changed file
         fake = self._fresh_fake()
         code, out = self.run_cli(["go", str(self.project)], fake=fake)
         # the whole character output directory was deleted then rebuilt
         self.assertIn(f"[courier] stale source still: {self.still_path()}", out)
         self.assertNotIn(fingerprint, out)
         # fresh stills: the source was re-prepared and every direction edited
-        self.assert_fingerprint(CHANGED_PNG)
-        self.assertEqual(Image.open(self.master / "se.png").size, (1280, 1280))
+        self.assert_fingerprint(self.still_path().read_bytes())
+        self.assertEqual(Image.open(self.master / "s.png").size, (832, 1024))
         for d in GEN_DIRS:
             self.assertTrue((self.master / f"{d}.png").is_file(), d)
         self.assertTrue((self.out_char / "refs-sheet.png").is_file())
@@ -139,7 +153,9 @@ class TestStaleSourceRebuild(StalenessFixture):
 
     def test_r3_repointed_still_path_is_the_same_trigger(self):
         self.build_and_approve()
-        Image.new("RGB", (64, 80), (5, 5, 5)).save(self.base / "stills" / "courier2.png")
+        # the repointed still: a different standing figure (FR 6 accepts it)
+        mannequins.pose_frame(560, 880, body_h=280, body_w=160,
+                              feet_from_bottom=8).save(self.base / "stills" / "courier2.png")
         pf = self.base / "project.yaml"
         pf.write_text(pf.read_text().replace("still: stills/courier.png",
                                              "still: stills/courier2.png"))
@@ -153,7 +169,7 @@ class TestStaleSourceRebuild(StalenessFixture):
 
     def test_r7_stale_line_names_the_source_file_path(self):
         self.build_and_approve()
-        self.still_path().write_bytes(CHANGED_PNG)
+        self.still_path().write_bytes(_standing_other())
         code, out = self.run_cli(["go", str(self.project)], fake=self._fresh_fake())
         line = next(l for l in out.splitlines() if "stale source still" in l)
         self.assertEqual(line, f"[courier] stale source still: {self.still_path()}")
@@ -169,7 +185,7 @@ class TestDryRunStale(StalenessFixture):
         code, out = self.run_cli(self.approve_cmd())
         self.assertEqual(code, 0, out)
         before = {p: p.read_bytes() for p in self.out_char.rglob("*") if p.is_file()}
-        self.still_path().write_bytes(CHANGED_PNG)
+        self.still_path().write_bytes(_standing_other())
         fake = self._fresh_fake()
         code, out = self.run_cli(["go", str(self.project), "--dry-run"], fake=fake)
         self.assertEqual(code, 0, out)
@@ -260,11 +276,11 @@ class TestLegacyDirectory(StalenessFixture):
         # once the fingerprint exists, a later change is stale, not unknown
         self.seed_legacy()
         self.run_cli(["go", str(self.project)], fake=self._fresh_fake())
-        self.still_path().write_bytes(CHANGED_PNG)
+        self.still_path().write_bytes(_standing_other())
         code, out = self.run_cli(["go", str(self.project)], fake=self._fresh_fake())
         self.assertEqual(code, 0, out)
         self.assertIn(f"[courier] stale source still: {self.still_path()}", out)
-        self.assert_fingerprint(CHANGED_PNG)
+        self.assert_fingerprint(self.still_path().read_bytes())
 
 
 class TestTwoCharacterIsolation(StalenessFixture):
@@ -289,7 +305,7 @@ class TestTwoCharacterIsolation(StalenessFixture):
             im = Image.new("RGB", (32, 32), color)
             for d in GEN_DIRS:
                 im.save(master / f"{d}.png")
-            (master / "se.keyed.png").write_bytes(TINY_PNG)
+            (master / "s.keyed.png").write_bytes(TINY_PNG)
             (self.base / "out" / ch / "refs-sheet.png").write_bytes(TINY_PNG)
             code, out = self.run_cli(["approve", str(self.project), ch])
             self.assertEqual(code, 0, out)
@@ -308,7 +324,7 @@ class TestTwoCharacterIsolation(StalenessFixture):
         # (a hashless directory is unknown, not stale): write the old one
         cs_courier = next(c for c in self.proj.characters if c.name == "courier")
         self.ctx().write_source_hash("courier", cs_courier)
-        self.still_path().write_bytes(CHANGED_PNG)
+        self.still_path().write_bytes(_standing_other())
         self.assertTrue(self.ctx().source_stale("courier", cs_courier))
         guard_before = {p: p.read_bytes()
                         for p in self.out_guard.rglob("*") if p.is_file()}
@@ -326,7 +342,7 @@ class TestTwoCharacterIsolation(StalenessFixture):
         self.assert_stopped_with_approve_command(code, out)
         self.assertFalse((self.out_char / "refs.approved").exists())
         self.assertEqual((self.master / "source.sha256").read_text().strip(),
-                         sha256(CHANGED_PNG))
+                         sha256(self.still_path().read_bytes()))
         # guard: its directory, fingerprint and approval byte-identical
         guard_after = {p: p.read_bytes()
                        for p in self.out_guard.rglob("*") if p.is_file()}
@@ -350,7 +366,7 @@ class TestDropCharOutputs(unittest.TestCase):
             ctx = self._ctx(td)
             out_char = ctx.project.output_root() / "courier"
             (out_char / "master").mkdir(parents=True)
-            (out_char / "master" / "se.png").write_bytes(TINY_PNG)
+            (out_char / "master" / "s.png").write_bytes(TINY_PNG)
             (out_char / "refs.approved").write_text("x\n")
             ctx.drop_char_outputs("courier")
             self.assertFalse(out_char.exists())

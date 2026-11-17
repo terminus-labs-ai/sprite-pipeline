@@ -29,7 +29,11 @@ from pathlib import Path
 import yaml
 from PIL import Image
 
+import mannequins
+
 from sprite_pipeline import cli, config, project, stages, stills
+
+import mannequins
 
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = ROOT / "examples" / "isometric"
@@ -45,7 +49,7 @@ OTHER_PNG = bytes.fromhex(  # every pixel (9, 9, 9, 255): a *changed* still
     "0000e104e5dc2b0000000049454e44ae426082")
 
 GEN_DIRS = ["s", "se", "e", "ne", "n"]
-EDIT_DIRS = ["s", "e", "ne", "n"]  # the generated directions that are not se
+EDIT_DIRS = ["se", "e", "ne", "n"]  # the generated directions that are not s
 
 # the review prompt's framing, copied from the new-kit pattern (FR 7): the
 # AC row pins the whole string, so it is stated here independently of stills.py
@@ -145,6 +149,15 @@ class Env(unittest.TestCase):
         return code, buf.getvalue()
 
 
+def write_standing_still(path, size=(500, 900), body=(300, 200), feet=10):
+    """A still the FR 6 standing rule accepts: a flat background with a figure
+    `body[0]` px tall and `body[1]` px wide, its feet `feet` px from the
+    bottom edge."""
+    mannequins.standing_still(size[0], size[1], body_h=body[0], body_w=body[1],
+                              feet_from_bottom=feet).save(path)
+    return path
+
+
 def make_stub_project(tmp, pronoun="she"):
     """A stubbed working copy of examples/isometric: real project.yaml, stub
     GLB bytes and a real (valid PNG) source still — the run prepares it for
@@ -154,7 +167,8 @@ def make_stub_project(tmp, pronoun="she"):
     (base / "anims").mkdir(parents=True, exist_ok=True)
     (base / "anims" / "ual.glb").write_bytes(TINY_PNG)
     (base / "stills").mkdir(parents=True, exist_ok=True)
-    Image.new("RGB", (64, 80), (10, 200, 10)).save(base / "stills" / "courier.png")
+    write_standing_still(base / "stills" / "courier.png")
+    mannequins.register(TINY_PNG, glb_name="ual.glb")
     if pronoun != "she":
         pf = base / "project.yaml"
         pf.write_text(pf.read_text().replace("pronoun: she", f"pronoun: {pronoun}"))
@@ -201,18 +215,19 @@ class ReviewFixture(Env):
         out.write_bytes(TINY_PNG)
 
     def _make_still(self, argv):
-        # the faked edit writes a real PNG to its --copy-to destination
+        # the faked edit writes a real PNG (a standing figure) to --copy-to
         dst = Path(argv[argv.index("--copy-to") + 1])
         dst.parent.mkdir(parents=True, exist_ok=True)
-        Image.new("RGB", (32, 32), (10, 200, 10)).save(dst)
+        write_standing_still(dst)
 
     def seed_stills(self):
-        # real PNG bytes: a sheet over them must build (the sheet is part of AC4/AC5)
-        im = Image.new("RGB", (32, 32), (10, 200, 10))
+        # real PNG bytes (standing figures): a sheet over them must build and
+        # the run's FR 6 check accepts them
+        im = mannequins.standing_still()
         self.master.mkdir(parents=True, exist_ok=True)
         for d in GEN_DIRS:
             im.save(self.master / f"{d}.png")
-        (self.master / "se.keyed.png").write_bytes(TINY_PNG)
+        (self.master / "s.keyed.png").write_bytes(TINY_PNG)
 
     def approve_cmd(self):
         return ["approve", str(self.project), "courier"]
@@ -249,20 +264,21 @@ class TestFirstRunStopsForReview(ReviewFixture):
             # the pinned FR 7 prompt: the view's turn text in her/her
             self.assertEqual(e[e.index("--prompt") + 1],
                              expected_prompt(self.turn, d, "she"))
-            # the edit input is the fitted 832x1024 still, not the padded se.png
+            # the edit input is the anchored 832x1024 master (FR 6)
             img = Path(e[e.index("--image") + 1])
-            self.assertEqual(img, self.master / "se.fit.png")
+            self.assertEqual(img, self.master / "s.png")
             self.assertEqual(Image.open(img).size, (832, 1024))
         self.assertEqual(self.fake.animate_calls(), [])
-        # prepared SE still (1280x1280, AC3), palette key, direction stills on disk
-        se = self.master / "se.png"
-        self.assertTrue(se.is_file())
-        self.assertEqual(Image.open(se).size, (1280, 1280))
+        # the anchored master on the edit canvas, palette key, direction
+        # stills on disk
+        s = self.master / "s.png"
+        self.assertTrue(s.is_file())
+        self.assertEqual(Image.open(s).size, (832, 1024))
         cut = [c for c in self.fake.calls if Path(c[0]).name == "sprite-gen"]
         self.assertEqual(len(cut), 1, "\n".join(" ".join(c) for c in self.fake.calls))
         self.assertEqual(cut[0][1], "cutout")
         # sprite-gen 4.3.0 cutout: input is positional (no --source)
-        self.assertEqual(cut[0][2], str(se))
+        self.assertEqual(cut[0][2], str(s))
         self.assertEqual(cut[0][cut[0].index("--key") + 1], "measured")
         for d in EDIT_DIRS:
             self.assertTrue((self.master / f"{d}.png").is_file(), d)
@@ -277,7 +293,7 @@ class TestFirstRunStopsForReview(ReviewFixture):
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
         self.assertEqual(code, 0, out)
         for e in self.fake.edit_calls():
-            self.assertNotEqual(e[e.index("--copy-to") + 1], str(self.master / "se.png"))
+            self.assertNotEqual(e[e.index("--copy-to") + 1], str(self.master / "s.png"))
 
     def test_r1_default_seed_is_the_project_seed(self):
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
@@ -295,57 +311,60 @@ class TestFirstRunStopsForReview(ReviewFixture):
 
 
 class TestDirectionStillsShareTheReferenceCanvas(ReviewFixture):
-    """An 832x1024 edit output is padded onto the 1280x1280 reference canvas
-    exactly as the prepared SE still is, so every reference has one scale."""
+    """The edit output keeps the 832x1024 edit canvas byte-for-byte (FR 6:
+    no 1280 padding anymore — the retired fill-fit/corner-fill behaviour)."""
 
     def _make_still(self, argv):
+        # an 832x1024 standing figure with a marker inside its body
         dst = Path(argv[argv.index("--copy-to") + 1])
         dst.parent.mkdir(parents=True, exist_ok=True)
-        im = Image.new("RGB", (832, 1024), (10, 200, 10))  # green background
+        im = mannequins.pose_frame(832, 1024, body_h=300, body_w=200,
+                                   feet_from_bottom=10)
         im.paste((200, 20, 20), (100, 100, 200, 200))  # a marker inside
         im.save(dst)
 
-    def test_edit_output_is_placed_like_prepare_with_corner_fill(self):
+    def test_edit_output_keeps_the_edit_canvas_untouched(self):
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
         self.assertEqual(code, 0, out)
         for d in EDIT_DIRS:
             im = Image.open(self.master / f"{d}.png").convert("RGB")
-            self.assertEqual(im.size, (1280, 1280), d)
-            self.assertEqual(im.getpixel((0, 0)), (10, 200, 10), d)  # corner fill
-            self.assertEqual(im.getpixel((1279, 1279)), (10, 200, 10), d)
-            # the marker moved by REF_OFFSET (224, 128), scale unchanged
-            self.assertEqual(im.getpixel((224 + 150, 128 + 150)), (200, 20, 20), d)
-            self.assertEqual(im.getpixel((224 + 50, 128 + 50)), (10, 200, 10), d)
+            self.assertEqual(im.size, (832, 1024), d)
+            self.assertEqual(im.getpixel((0, 0)), (10, 200, 10), d)  # corner colour
+            self.assertEqual(im.getpixel((831, 1023)), (10, 200, 10), d)
+            # the marker stays where the edit wrote it, unresized, unpadded
+            self.assertEqual(im.getpixel((150, 150)), (200, 20, 20), d)
+            self.assertEqual(im.getpixel((50, 50)), (10, 200, 10), d)
 
 
 class TestFitStillIsNotADirectionStill(ReviewFixture):
-    """se.fit.png (the edit input) never counts as a direction still: not a
-    missing still, not in the approval hash."""
+    """The anchored master (the edit input) never counts as a direction still:
+    not a missing still, not in the approval hash (retargeted from the retired
+    se.fit.png companion to master/s.png, the master's own direction)."""
 
     def test_edit_image_is_832x1024_and_regenerated_on_force(self):
         self.run_cli(["go", str(self.project)], fake=self.fake)
-        fit = self.master / "se.fit.png"
-        self.assertEqual(Image.open(fit).size, (832, 1024))
-        fit.write_bytes(b"stale")
+        master = self.master / "s.png"
+        self.assertEqual(Image.open(master).size, (832, 1024))
+        master.write_bytes(b"stale")
         self.run_cli(["go", str(self.project), "--force"], fake=self._fresh_fake())
-        self.assertEqual(Image.open(fit).size, (832, 1024))
+        self.assertEqual(Image.open(master).size, (832, 1024))
 
     def test_fit_png_does_not_affect_missing_stills_or_hash(self):
         self.seed_stills()
         code, out = self.run_cli(["approve", str(self.project), "courier"])
         self.assertEqual(code, 0, out)
         approved = (self.out_char / "refs.approved").read_text()
-        Image.new("RGB", (832, 1024), (1, 2, 3)).save(self.master / "se.fit.png")
+        Image.new("RGB", (832, 1024), (1, 2, 3)).save(self.master / "s.png")
         code, out = self.run_cli(["approve", str(self.project), "courier"])
         self.assertEqual(code, 0, out)
         self.assertEqual((self.out_char / "refs.approved").read_text(), approved)
 
     def test_fit_png_alone_is_not_a_still(self):
         self.master.mkdir(parents=True, exist_ok=True)
-        Image.new("RGB", (832, 1024), (1, 2, 3)).save(self.master / "se.fit.png")
+        Image.new("RGB", (832, 1024), (1, 2, 3)).save(self.master / "s.png")
         code, out = self.run_cli(["approve", str(self.project), "courier"])
         self.assertEqual(code, 2, out)
-        self.assertNotIn("se.fit", out)
+        self.assertNotIn("s.fit", out)
 
 
 # ----------------------------------------------------------------- AC4-r2: they

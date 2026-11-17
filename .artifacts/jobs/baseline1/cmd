@@ -1,0 +1,2 @@
+# commit worktree-seam
+PYTHONPATH=. uv run pytest tests/ -q > /data/worktrees/sprite-pipeline/sprite-pipeline-34/.artifacts/jobs/baseline1/raw 2>&1

@@ -79,7 +79,7 @@ class TestPlans(Case):
         ctx, p = self.ctx(960)
         cmds = ctx.plan_pair("courier", p.animation("punch"), "s", "animate")
         pad, (argv, _) = cmds[0][0], cmds[1]
-        self.assertEqual(pad[0], "pad_still")
+        self.assertEqual(pad[0], "pad_ref")
         self.assertEqual(pad[1], str(ctx.dir_still("courier", "s")))
         self.assertEqual(argv[argv.index("--ref") + 1], pad[2])
         self.assertEqual(argv[argv.index("--w") + 1], "960")
@@ -101,7 +101,7 @@ class TestPadStill(unittest.TestCase):
             im = Image.new("RGB", (40, 50), (0, 200, 0))
             im.putpixel((20, 25), (255, 0, 0))
             im.save(src)
-            stages.pad_still(str(src), str(dst), 20, 32, [])
+            stages.pad_ref(str(src), str(dst), 20, 32, [])
             out = Image.open(dst).convert("RGB")
             self.assertEqual(out.size, (32, 32))
             self.assertEqual(out.getpixel((0, 0)), (0, 200, 0))

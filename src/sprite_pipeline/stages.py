@@ -240,7 +240,7 @@ class StageCtx:
                 # the reference still at the usual frame size, centred on the
                 # larger canvas: the character keeps its pixel size
                 padded = str(self.work_dir(char, anim, d) / f"ref-{canvas}.png")
-                cmds.append((("pad_still", ref, padded, str(p.sprite.frame_size), str(canvas)), "pad-still"))
+                cmds.append((("pad_ref", ref, padded, str(p.sprite.frame_size), str(canvas)), "pad-ref"))
                 ref = padded
             argv = [sys.executable, "-m", "sprite_pipeline.comfy", "animate",
                     "--workflow", str(wf),
@@ -288,7 +288,7 @@ class StageCtx:
         p = self.project
         if stage == "pixel":
             argv = [sys.executable, "-m", "sprite_pipeline.pixelize",
-                    "--ref", str(self.master(char) / "se.keyed.png"),
+                    "--ref", str(self.master(char) / f"{p.still_dir}.keyed.png"),
                     "--scale", str(p.sprite.scale), "--colors", str(p.sprite.colors),
                     "--accent-boost", str(p.sprite.accent_boost), "--fps", str(p.sprite.fps),
                     "--out", str(self.sprite_out(char))]
@@ -325,9 +325,11 @@ def sprite_gen_cmds(*args):
     return [([str(sprite_gen_exe()), *args], "sprite-gen")]
 
 
-def pad_still(src, dst, frame, canvas, log):
+def pad_ref(src, dst, frame, canvas, log):
     """Scale a still to frame x frame (as the animate workflow would) and
-    centre it on a canvas x canvas image filled with its top-left colour."""
+    centre it on a canvas x canvas image filled with its top-left colour.
+    FR 6 retires the 1280 still canvas (`pad_still`); this remains for a
+    larger animation canvas, where the reference keeps its pixel size."""
     from PIL import Image
 
     frame, canvas = int(frame), int(canvas)
@@ -337,7 +339,7 @@ def pad_still(src, dst, frame, canvas, log):
     out.paste(im, (off, off))
     Path(dst).parent.mkdir(parents=True, exist_ok=True)
     out.save(dst)
-    log.append(f"pad_still {src} -> {dst} ({frame} on {canvas})")
+    log.append(f"pad_ref {src} -> {dst} ({frame} on {canvas})")
 
 
 def copy_file(src, dst, log):
@@ -349,8 +351,8 @@ def copy_file(src, dst, log):
 
 
 def plan_cutout(still_path, out_dir):
-    """Key the prepared SE still with `sprite-gen cutout --key measured` (FR 6).
-    Planned here; wired into the still-preparation stage in slice 4."""
+    """Key the anchored master with `sprite-gen cutout --key measured` (FR 6):
+    `out_dir/<stem>.keyed.png`, so the master `s` keys to `master/s.keyed.png`."""
     out_path = Path(out_dir) / (Path(still_path).stem + ".keyed.png")
     return sprite_gen_cmds("cutout", str(still_path), "--out", str(out_path),
                            "--key", "measured")

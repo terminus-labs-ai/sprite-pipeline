@@ -18,6 +18,8 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
+import mannequins
+
 from sprite_pipeline import cli, config, project, stages
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -28,6 +30,15 @@ TINY_PNG = bytes.fromhex(
     "89504e470d0a1a0a0000000d4948445200000002000000020806000000"
     "72b60d080000001d4944415408d763f8ffff3f01078895a30000000000"
     "000000db12c6c60000000049454e44ae426082")
+
+def _standing_still_bytes(rel):
+    """The fixture still: a flat-background standing figure (FR 6)."""
+    import io
+
+    buf = io.BytesIO()
+    mannequins.standing_still().save(buf, format="PNG")
+    return buf.getvalue()
+
 
 ANIM_NAMES = ["run", "punch", "idle", "walk", "sneak", "crouch_idle", "hack",
               "interact", "jab", "pistol_shoot", "hit", "death", "roll"]
@@ -109,10 +120,13 @@ class Env(unittest.TestCase):
 
 # ------------------------------------------------------------------------ fixtures
 
+STANDING_PNG = None  # set below, after mannequins is imported
+
+
 class ProjectFixture:
-    """A stubbed working copy of examples/isometric: the still and the GLB are
-    stub bytes (the example ships only project.yaml and its README), and an LSR
-    stub stands in for the machine-local drive LSR named by config.toml."""
+    """A stubbed working copy of examples/isometric: the still is a standing
+    figure (FR 6), the GLB is stub bytes with a registered profile (FR 4), and
+    an LSR stub stands in for the machine-local drive LSR named by config.toml."""
 
     def __init__(self, tmp):
         self.tmp = Path(tmp)
@@ -121,7 +135,9 @@ class ProjectFixture:
         for rel in ("stills/courier.png", "anims/ual.glb"):
             f = self.base / rel
             f.parent.mkdir(parents=True, exist_ok=True)
-            f.write_bytes(TINY_PNG)
+            f.write_bytes(_standing_still_bytes(rel) if rel.startswith("stills/")
+                          else TINY_PNG)
+        mannequins.register(TINY_PNG, glb_name="ual.glb")
         self.lsr = self.tmp / "machine" / "lsr.blend"
         self.lsr.parent.mkdir(parents=True)
         self.lsr.write_bytes(TINY_PNG)
@@ -152,16 +168,16 @@ class TestDryRunNeedsNothing(Env):
     def test_exit_zero_still_preparation_and_summary(self):
         code, out = self.run_cli(["go", str(self.f.project), "--dry-run"])
         self.assertEqual(code, 0, out)
-        self.assertIn(str(self.f.base / "out" / "courier" / "master" / "se.png"), out)
+        self.assertIn(str(self.f.base / "out" / "courier" / "master" / "s.png"), out)
         self.assertIn("[courier] still preparation", out)
         self.assertIn("dry run complete", out)
         self.assertIn("summary", out)
 
     def test_four_direction_edit_lines(self):
         code, out = self.run_cli(["go", str(self.f.project), "--dry-run"])
-        for d in ("s", "e", "ne", "n"):
+        for d in ("se", "e", "ne", "n"):
             self.assertIn(f"[courier/{d}] direction edit", out)
-        self.assertNotIn("[courier/se] direction edit", out)  # the still's own dir
+        self.assertNotIn("[courier/s] direction edit", out)  # the still's own dir
         self.assertEqual(len(re.findall(r"courier/\w+\] direction edit", out)), 4)
 
     def test_no_animation_lines_for_an_unapproved_character(self):

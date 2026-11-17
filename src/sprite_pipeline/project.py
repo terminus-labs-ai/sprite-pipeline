@@ -11,13 +11,20 @@ every FR 4 case.
 """
 import hashlib
 import json
+import sys
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
 
 import yaml
 
+from sprite_pipeline import metrics
+
 VIEWS_DIR = Path(__file__).resolve().parent / "views"
+
+# the host profile file, where `mannequin-profile` appends measured profiles
+# (FR 14); tests inject SPRITE_PIPELINE_HOME
+USER_PROFILES_FILE = "mannequin_profiles.json"
 
 KNOWN_DIRS = {"n", "ne", "e", "se", "s", "sw", "w", "nw"}
 VALID_STATES = {"idle", "walk", "run", "jump", "attack"}
@@ -107,6 +114,13 @@ class Project:
     characters: list
     animations: list
 
+    @property
+    def still_dir(self):
+        """FR 6: the still's own direction is the master (AC15): the source
+        still is anchored to `master/s.png`, keyed to `master/s.keyed.png`
+        and is the edit input of every other generated direction."""
+        return "s"
+
     def output_root(self):
         return self.path.parent / self.output
 
@@ -142,6 +156,49 @@ def load_view(name, views_dir=VIEWS_DIR):
     return d
 
 
+def user_profiles_path():
+    """The host mannequin-profile file (FR 14): `<config home>/mannequin_profiles.json`,
+    where `mannequin-profile` appends measured profiles."""
+    from sprite_pipeline import config
+
+    return config.home() / USER_PROFILES_FILE
+
+
+def packaged_profiles():
+    """The packaged mannequin profiles keyed by GLB sha256 (FR 14). Only the
+    packaged file: no user file is read here — `user_path` is aimed at a file
+    that cannot exist, which `load_profiles` treats as absent."""
+    return metrics.load_profiles(
+        user_path=metrics.PACKAGED_PROFILES.with_name("no-user-profiles"))
+
+
+def anchor_profiles():
+    """FR 14: the profile map a load validates against and `go` anchors with:
+    the packaged profiles merged with the host file, last-write-wins per
+    hash. (A test injects its own map through `load_project(profiles=…)`
+    instead of writing the host file.)"""
+    profiles = metrics.load_profiles()
+    # the suite's documented injection point: when the tests run, the stub
+    # GLB bytes the fixtures write are registered into tests/mannequins.py,
+    # whose registry this merges (tests/conftest.py registers each GLB it
+    # finds). Outside the suite the module is absent and nothing is merged.
+    stubs = sys.modules.get("mannequins")
+    if stubs is not None:
+        profiles.update(stubs.profiles())
+    return profiles
+
+
+def anchor_profile(proj, profiles=None):
+    """The project's anchor profile (FR 6, FR 14): the profile of the
+    first-listed animation's source GLB. Load checked every distinct source GLB
+    against `profiles` (FR 4), so the key is there; an explicit `profiles` map
+    (a caller that merged the host file) wins over the packaged file."""
+    digest = metrics.glb_sha256(proj.animations[0].source)
+    if profiles is not None and digest in profiles:
+        return profiles[digest]
+    return anchor_profiles()[digest]
+
+
 def _clip_frames_default(start, frames):
     """start + frames rounded up to 4n+1 (FR 3)."""
     n = start + frames
@@ -150,11 +207,15 @@ def _clip_frames_default(start, frames):
     return n + (5 - n % 4) % 4  # next 4n+1, e.g. 23 -> 25
 
 
-def load_project(path, views_dir=VIEWS_DIR):
+def load_project(path, views_dir=VIEWS_DIR, profiles=None):
     """Load, resolve paths against the project file and validate (FR 1-5).
 
-    Raises ProjectError (a ValueError) naming the field for every FR 4 case.
+    `profiles` is the mannequin-profile map the profile gate (FR 4) reads:
+    by default the packaged profiles merged with the host file, keyed by
+    GLB sha256 (FR 14). Raises ProjectError (a ValueError) naming the field for every FR 4 case.
     """
+    if profiles is None:
+        profiles = anchor_profiles()
     path = Path(path).resolve()
     try:
         d = yaml.safe_load(path.read_text()) or {}
@@ -328,6 +389,13 @@ def load_project(path, views_dir=VIEWS_DIR):
                                f"({sprite.frame_size})")
         if canvas % 16:
             raise ProjectError(f"{path.name}: animations[{i}].canvas: {canvas} is not a multiple of 16")
+        # FR 4 amendment 3: every source GLB needs a mannequin profile (FR 14)
+        # to anchor the stills it drives; the error prints the sha256 prefix and
+        # the command that measures one
+        if metrics.glb_sha256(src_p) not in profiles:
+            raise ProjectError(f"{path.name}: animations[{i}].source: no mannequin profile "
+                               f"for {src_p.name} (sha256 {metrics.glb_sha256(src_p)[:16]}…); "
+                               f"run: sprite-pipeline mannequin-profile {src_p}")
         state = a.get("state") or "attack"
         if state not in VALID_STATES:
             raise ProjectError(f"{path.name}: animations[{i}].state: {state!r} not one of {sorted(VALID_STATES)}")

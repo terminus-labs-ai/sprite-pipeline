@@ -1,23 +1,39 @@
-"""Still preparation, direction-edit prompts and the review sheet (spec FR 6-8).
+"""Anchored still preparation, direction-edit prompts and the review sheet
+(spec FR 6-8, amendment 3).
 
-`prepare` (`fit` then `place`) takes a still of any size on a flat background,
-scales it to fit the reference canvas, centres it and pads it with the still's
-corner colour (spec AC3). The reference canvas is 1280x1280: the still is
-scaled to fit within 832x1024 (keeping aspect ratio), then pasted centred
-within that 832x1024 area at (224, 128) on the canvas. Every pixel outside the
-scaled still is filled with the still's corner colour (top-left pixel).
+A character's still must be an A- or T-pose standing figure on a flat
+background. `check` (FR 6) measures it with `metrics` and rejects a figure that
+does not stand, naming the file and the failed rule (`too wide`, `too small` or
+`feet not at the bottom`).
+
+`anchor` then prepares the master: the still is scaled uniformly so its
+measured body height equals the mannequin profile's target on the 832x1024 edit
+canvas — `body_h * 1024 / frame_size` px (470 at the default 704) — with its
+feet pinned to floor `floor_y(frame_size) * 1024 / frame_size` (766 at 704) and
+the figure centred horizontally (x 416). Every other pixel is flat chroma green
+(CHROMA_GREEN). Anchoring reproduces the drive-video geometry after the animate
+step's 832->`frame_size` downscale, so Wan Animate receives a ref framed like
+the mannequin it follows. The master replaces the old fill-fit plus 1280
+reference canvas: there is no 1280 canvas anymore.
 
 `dir_prompt` (FR 7) is the edit-workflow prompt for one direction: the view's
 turn prompt for that direction, wrapped in the character's pronoun. `review_sheet`
 (FR 8) writes the review sheet `refs-sheet.png`: the direction stills side by
 side, each labelled underneath.
 """
-import shutil
 from pathlib import Path
 
+import numpy
+
+from sprite_pipeline import metrics
+
 STILL_SIZE = (832, 1024)
-REF_SIZE = 1280
-REF_OFFSET = (224, 128)
+# the drive camera's canvas and the edit canvas it is composited onto (FR 6)
+DRIVE_RES = 704
+CANVAS_W = 832
+CANVAS_H = metrics.CANVAS_H
+# the flat chroma background of an anchored master (FR 6)
+CHROMA_GREEN = (31, 203, 25)
 
 # the edit prompt's framing, from the new-kit branch (dir_prompt): the turn
 # prompt keeps the character, camera and style; only the facing changes
@@ -41,43 +57,110 @@ def pronoun_forms(pronoun):
     return {"subj": subj.capitalize(), "sub": subj, "obj": obj, "pos": pos, "pos_cap": pos.capitalize(), "s": s}
 
 
-def fit(src, dst=None):
-    """Scale a still of any size to fit STILL_SIZE (832x1024) keeping aspect
-    ratio, centred on an 832x1024 canvas filled with the scaled still's
-    top-left pixel colour. Saves to `dst` when given. Returns the image."""
+def check(src):
+    """FR 6: the still must be an A- or T-pose standing figure. Returns the
+    measurement (`body_h`, `floor_y`, `centre_x`) when it stands; raises
+    metrics.FigureError naming the file and the failed rule when it does not."""
+    metrics.check_standing(src)
+    return metrics.measure(src)
+
+
+def body_target(frame_size, profile=None):
+    """FR 6: the body height in px the anchored master measures on the
+    832x1024 edit canvas — the profile's `body_h` at the drive resolution
+    scaled by 1024 / frame_size (324 -> 471 at frame_size 704 — the spec's
+    rounded 470 —, 324 at 1024)."""
+    if profile is None:
+        profile = next(iter(metrics.load_profiles().values()))
+    return profile["body_h"] * CANVAS_H / frame_size
+
+
+def floor_line(frame_size, profile=None):
+    """FR 6: the floor row in px of the anchored master on the 832x1024 edit
+    canvas — `metrics.anchor_floor` of the profile's 704-res `floor_y`
+    (525 -> 766 at frame_size 704, 525 -> 685 at 1024)."""
+    if profile is None:
+        profile = next(iter(metrics.load_profiles().values()))
+    return metrics.anchor_floor(profile["floor_y"], frame_size)
+
+
+def anchor(src, dst, frame_size, profile):
+    """FR 6: prepare the anchored master of a standing-figure still.
+
+    The still is scaled uniformly by `body_target(frame_size, profile) /
+    measured body height` and its figure pasted on an 832x1024 canvas filled
+    with CHROMA_GREEN: its feet row lands on `floor_line(frame_size, profile)`
+    and its measured centre x lands on the canvas centre (x 416). Returns
+    `dst`. Raises metrics.FigureError when the still is not a standing figure
+    (or cannot be read as an image at all).
+    """
     from PIL import Image
 
+    try:
+        metrics.check_standing(src)
+        m = metrics.measure(src)
+    except metrics.FigureError:
+        raise
+    except Exception as e:
+        # an unreadable or malformed source is a standing-rule failure too:
+        # FigureError naming the file, never a traceback
+        raise metrics.FigureError(str(src), "not a readable image") from e
     im = Image.open(src).convert("RGB")
-    w, h = im.size
-    scale = min(STILL_SIZE[0] / w, STILL_SIZE[1] / h)
-    new_w = round(w * scale)
-    new_h = round(h * scale)
-    im = im.resize((new_w, new_h), Image.LANCZOS)
-
-    canvas = Image.new("RGB", STILL_SIZE, im.getpixel((0, 0)))
-    canvas.paste(im, ((STILL_SIZE[0] - new_w) // 2, (STILL_SIZE[1] - new_h) // 2))
-    if dst is not None:
-        Path(dst).parent.mkdir(parents=True, exist_ok=True)
-        canvas.save(dst)
-    return canvas
-
-
-def place(fitted, dst):
-    """Paste an 832x1024 fitted still at REF_OFFSET on a 1280x1280 canvas
-    filled with its corner colour (top-left pixel). Returns `dst`."""
-    from PIL import Image
-
-    canvas = Image.new("RGB", (REF_SIZE, REF_SIZE), fitted.getpixel((0, 0)))
-    canvas.paste(fitted, REF_OFFSET)
+    scale = body_target(frame_size, profile) / m["body_h"]
+    new_w = max(1, round(im.width * scale))
+    new_h = max(1, round(im.height * scale))
+    # the whole source frame scales as one image, then the figure — every
+    # pixel further than CORNER_DIFF from the source's own flat background
+    # (the backdrop resamples to itself, the figure does not) — is pasted on
+    # the chroma canvas: the master's background is flat (31, 203, 25)
+    # wherever the figure is not
+    scaled = im.resize((new_w, new_h), Image.LANCZOS)
+    bg = numpy.asarray(scaled.getpixel((0, 0)), dtype=numpy.int16)
+    arr = numpy.asarray(scaled, dtype=numpy.uint8)
+    fig = (abs(numpy.asarray(scaled, dtype=numpy.int16) - bg)
+           > metrics.CORNER_DIFF).any(axis=2)
+    # the figure bbox in the scaled frame: the paste pins its bottom row
+    # (floor + 1) on the floor line and its centre x on the canvas centre
+    ys, xs = numpy.nonzero(fig)
+    bx0, bx1 = int(xs.min()), int(xs.max()) + 1
+    by0, by1 = int(ys.min()), int(ys.max()) + 1
+    left = CANVAS_W // 2 - round((bx0 + bx1 - 1) / 2)
+    floor = metrics.anchor_floor(profile["floor_y"], frame_size)
+    top = round(floor + 1 - by1)
+    canvas = Image.new("RGB", STILL_SIZE, CHROMA_GREEN)
+    car = numpy.array(canvas)  # writable copy of the flat chroma canvas
+    # clip the paste rect to the canvas: only figure pixels move, the
+    # background stays CHROMA_GREEN everywhere the figure is not
+    dx0, dx1 = max(0, bx0 + left), min(CANVAS_W, bx1 + left)
+    dy0, dy1 = max(0, by0 + top), min(CANVAS_H, by1 + top)
+    if dx1 > dx0 and dy1 > dy0:
+        sub = fig[dy0 - top:dy1 - top, dx0 - left:dx1 - left]
+        reg = car[dy0:dy1, dx0:dx1]
+        reg[sub] = arr[dy0 - top:dy1 - top, dx0 - left:dx1 - left][sub]
+    canvas = Image.fromarray(car)
     Path(dst).parent.mkdir(parents=True, exist_ok=True)
     canvas.save(dst)
     return dst
 
 
-def prepare(src, dst):
-    """Scale a still of any size to fit the reference canvas, centre it, and
-    pad with its corner colour: `fit` then `place`. Returns `dst`."""
-    return place(fit(src), dst)
+def size_master(src, dst_dir, size=STILL_SIZE):
+    """Hand a direction still the master's canvas: the edit's output is
+    expected on the 832x1024 edit canvas, so anything else is scaled to fit it
+    and centred on flat chroma green. Returns the destination path."""
+    from PIL import Image
+
+    dst = Path(dst_dir) / Path(src).name
+    im = Image.open(src).convert("RGB")
+    if im.size != tuple(size):
+        scale = min(size[0] / im.width, size[1] / im.height)
+        new = (max(1, round(im.width * scale)), max(1, round(im.height * scale)))
+        fitted = Image.new("RGB", tuple(size), CHROMA_GREEN)
+        fitted.paste(im.resize(new, Image.LANCZOS),
+                     ((size[0] - new[0]) // 2, (size[1] - new[1]) // 2))
+        im = fitted
+    Path(dst).parent.mkdir(parents=True, exist_ok=True)
+    im.save(dst)
+    return dst
 
 
 def dir_prompt(turn, d, pronoun):

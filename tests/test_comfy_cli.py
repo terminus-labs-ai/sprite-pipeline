@@ -35,6 +35,8 @@ from pathlib import Path
 import yaml
 from PIL import Image
 
+import mannequins
+
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = ROOT / "examples" / "isometric"
 WF_EDIT = ROOT / "src" / "sprite_pipeline" / "workflows" / "edit.json"
@@ -46,7 +48,7 @@ TINY_PNG = bytes.fromhex(
     "1f15c4890000000d49444154789c63e03ac1f51f00039801dc8b1f920b"
     "0000000049454e44ae426082")
 
-EDIT_DIRS = ["s", "e", "ne", "n"]  # the generated directions that are not se
+EDIT_DIRS = ["se", "e", "ne", "n"]  # the generated directions that are not s
 
 # the review prompt's framing, copied from the new-kit pattern (FR 7): the
 # whole string is stated independently of production code, as in test_review.py
@@ -182,7 +184,9 @@ def make_project(tmp, pronoun="she"):
     (base / "anims").mkdir(parents=True, exist_ok=True)
     (base / "anims" / "ual.glb").write_bytes(TINY_PNG)
     (base / "stills").mkdir(parents=True, exist_ok=True)
-    Image.new("RGB", (64, 80), (10, 200, 10)).save(base / "stills" / "courier.png")
+    im = mannequins.standing_still()
+    im.save(base / "stills" / "courier.png")
+    mannequins.register(TINY_PNG, glb_name="ual.glb")
     if pronoun != "she":
         pf = base / "project.yaml"
         pf.write_text(pf.read_text().replace("pronoun: she", f"pronoun: {pronoun}"))
@@ -308,7 +312,7 @@ class TestGoRealEditAtHTTPSeam(Env):
                          if c[c.index("--copy-to") + 1] == str(master / f"{d}.png")), d)
             self.assertEqual(argv[argv.index("--prompt") + 1],
                              expected_prompt(turn, d, "she"), d)
-            self.assertEqual(argv[argv.index("--image") + 1], str(master / "se.fit.png"), d)
+            self.assertEqual(argv[argv.index("--image") + 1], str(master / "s.png"), d)
             self.assertEqual(argv[argv.index("--prefix") + 1], f"courier/dir-{d}", d)
             g = next((g for g in self.server.prompts
                       if any((n.get("_meta") or {}).get("title") == "sp:prompt"
@@ -317,7 +321,7 @@ class TestGoRealEditAtHTTPSeam(Env):
             self.assertIsNotNone(g, d)
             ref = next(n for n in g.values()
                        if (n.get("_meta") or {}).get("title") == "sp:ref_image")
-            self.assertEqual(ref["inputs"]["image"], "se.fit.png", d)
+            self.assertEqual(ref["inputs"]["image"], "s.png", d)
             self.assertEqual(next(n for n in g.values()
                                   if (n.get("_meta") or {}).get("title") == "sp:seed")
                              ["inputs"]["noise_seed"], 7, d)  # examples project seed

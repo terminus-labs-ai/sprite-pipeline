@@ -43,6 +43,8 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
+import mannequins
+
 from sprite_pipeline import cli, comfy, config, project, stages
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -71,14 +73,28 @@ def run_cli(argv, fake=None):
     return code, buf.getvalue()
 
 
+
+
+def standing_png_bytes():
+    """A PNG the FR 6 standing rule accepts: a flat background, a figure 300
+    px tall and 200 wide, its feet 10 px from the bottom edge."""
+    import io
+
+    buf = io.BytesIO()
+    mannequins.standing_still().save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def fixture(tmp):
-    """A stubbed working copy of examples/isometric (stub still and GLB)."""
+    """A stubbed working copy of examples/isometric: the still is a standing
+    figure (FR 6) and the GLB is stub bytes with a registered profile (FR 4)."""
     base = Path(tmp) / "isometric"
     shutil.copytree(EXAMPLE, base)
     for rel in ("stills/courier.png", "anims/ual.glb"):
         f = base / rel
         f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_bytes(TINY_PNG)
+        f.write_bytes(standing_png_bytes() if rel.startswith("stills/") else TINY_PNG)
+    mannequins.register(TINY_PNG, glb_name="ual.glb")
     return base
 
 
@@ -424,7 +440,9 @@ class TestSharedStillPlan(unittest.TestCase):
             steps = cli.still_plan(p, "courier")
             self.assertEqual([s["kind"] for s in steps],
                              ["prepare", "edit", "edit", "edit", "edit"])
-            self.assertEqual([s["dir"] for s in steps], ["se", "s", "e", "ne", "n"])
+            # the master is the still's own direction, s (AC15): the edits are
+            # the generated directions minus s
+            self.assertEqual([s["dir"] for s in steps], ["s", "se", "e", "ne", "n"])
             self.assertEqual(steps[0]["src"], base / "stills" / "courier.png")
             turn = project.load_view(p.view)["turn"]
             for s in steps[1:]:
@@ -483,13 +501,13 @@ class TestSharedStillPlan(unittest.TestCase):
         edits = [i for i, l in enumerate(lines) if "] direction edit:" in l]
         self.assertEqual(len(preps), 1)
         self.assertEqual([i for i in edits if i < preps[0]], [])
-        self.assertEqual(len(edits), 4)  # s, e, ne, n — never se
-        self.assertNotIn("[courier/se] direction edit", out)
+        self.assertEqual(len(edits), 4)  # se, e, ne, n — never the master's s
+        self.assertNotIn("[courier/s] direction edit", out)
         # the direction edits ran in plan order, one subprocess each
         edit_calls = [c for c in calls if "sprite_pipeline.comfy edit" in c]
         self.assertEqual(len(edit_calls), 4)
         order = [re.search(r"--prefix courier/dir-(\w+) ", c).group(1) for c in edit_calls]
-        self.assertEqual(order, ["s", "e", "ne", "n"])
+        self.assertEqual(order, ["se", "e", "ne", "n"])
         # and the palette cutout of the prepared SE still happened once
         self.assertEqual(len([c for c in calls if "cutout" in c]), 1)
 

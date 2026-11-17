@@ -10,6 +10,8 @@ from pathlib import Path
 
 import yaml
 
+import mannequins
+
 from sprite_pipeline import project
 
 HERE = Path(__file__).resolve().parent
@@ -63,6 +65,7 @@ def write_project(tmp, text, with_still=True, with_glb=True):
         f = t / "anims" / "ual.glb"
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_bytes(ASSET)
+    mannequins.register(ASSET, glb_name="ual.glb")
     return p
 
 
@@ -312,7 +315,7 @@ class TestExampleProject(unittest.TestCase):
         # motions.yaml was removed with the kit CLI (sprite-pipeline-4); read
         # it from the last commit that had it
         text = subprocess.run(
-            ["git", "-C", str(HERE.parent), "show",
+            ["git", "-C", str(ROOT), "show",
              "b17638b:src/sprite_pipeline/motions.yaml"],
             capture_output=True, text=True, check=True).stdout
         motions = yaml.safe_load(text)

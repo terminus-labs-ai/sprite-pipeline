@@ -18,6 +18,8 @@ from pathlib import Path
 import sys
 import os
 
+import mannequins
+
 from sprite_pipeline import comfy, project, stages, config
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -119,6 +121,7 @@ class TestWorkflowOverride(unittest.TestCase):
             anims_dir.mkdir()
             (stills_dir / "courier.png").write_bytes(b"fake png")
             (anims_dir / "ual.glb").write_bytes(b"fake glb")
+            mannequins.register(b"fake glb", glb_name="ual.glb")
             # create an alt workflow
             workflows_dir = project_dir / "workflows"
             workflows_dir.mkdir()
