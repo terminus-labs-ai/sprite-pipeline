@@ -10,12 +10,14 @@
 - r3: a non-standing still (lying / too wide / too small / floating) makes `go`
   exit 2 naming the file and the failed rule.
 - r4: a project whose source GLB has no mannequin profile exits 2 printing the
-  sha256 prefix and the `mannequin-profile` command.
+  sha256 prefix and the `sprite-pipeline mannequin-profile <glb>` command.
 - r5: with ComfyUI faked, the edit step receives the anchored master as
   `--image` and the keyed file is `master/s.keyed.png`.
-- r6 (amendment 4): `mannequin-profile <glb>` with the render measurement faked
-  prints the measured JSON and appends the entry to the user file, replacing an
-  existing entry for the same hash (no duplicate).
+- r7 (amendment 4): `mannequin-profile <glb>` with the render measurement faked
+  prints the measured JSON and appends the entry to the user file
+  `~/.sprite-pipeline/mannequin_profiles.json`.
+- r8: re-run on the same GLB, it replaces the existing entry for that hash (no
+  duplicate).
 
 The anchor rows state their expected numbers independently of production code,
 as the literal FR 6 formula over the profile, each +/- 1: 324 x 1024 / 704 =
@@ -367,7 +369,9 @@ class TestProfileGate(GoEnv):
         msg = str(cm.exception)
         self.assertIn("no mannequin profile", msg)
         self.assertIn(digest[:16], msg)
-        self.assertIn("mannequin-profile", msg)
+        # the runnable command, naming the GLB to measure
+        glb = (self.base / "anims" / "ual.glb").resolve()
+        self.assertIn(f"sprite-pipeline mannequin-profile {glb}", msg)
 
     def test_r4_go_exit_2_names_the_glb_and_the_command(self):
         """`go` exits 2 (the project file is invalid) with the sha256 prefix and
@@ -382,8 +386,8 @@ class TestProfileGate(GoEnv):
         code, out = self.run_cli(["go", str(self.project)], fake=FakeRun())
         self.assertEqual(code, 2, out)
         self.assertIn(digest[:16], out)
-        self.assertIn("mannequin-profile", out)
-        self.assertIn("ual.glb", out)
+        glb = (self.base / "anims" / "ual.glb").resolve()
+        self.assertIn(f"sprite-pipeline mannequin-profile {glb}", out)
 
     def test_r4_a_profiled_glb_passes_the_gate(self):
         """The same run with the GLB's profile registered gets past the gate."""
@@ -499,12 +503,12 @@ class TestEditConsumesTheAnchoredMaster(GoEnv):
                               "cutout": _keyed})
 
 
-# --------------------------------------------- AC15-r6 (amendment 4): subcommand
+# ---------------------------------------- AC15-r7/r8 (amendment 4): subcommand
 
 class TestMannequinProfileCommand(unittest.TestCase):
     """AC15 amendment 4: `sprite-pipeline mannequin-profile <glb>` with the
     render measurement faked prints the measured JSON and appends the entry to
-    the user file, replacing an existing entry for the same hash."""
+    the user file (r7), replacing an existing entry for the same hash (r8)."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -553,35 +557,53 @@ class TestMannequinProfileCommand(unittest.TestCase):
     def _doc(self):
         return json.loads(self.user.read_text())
 
-    def test_r6_prints_the_measured_json(self):
+    def test_r7_prints_the_measured_json(self):
         code, out = self.run_cli(["mannequin-profile", str(self.glb)])
         self.assertEqual(code, 0, out)
         printed = json.loads(out.strip().splitlines()[-1])
         self.assertEqual(printed, {"glb_name": self.glb.name, "resolution": 704,
                                    "body_h": 300, "floor_y": 500})
 
-    def test_r6_appends_the_entry_to_the_user_file(self):
+    def test_r7_appends_the_entry_to_the_user_file(self):
+        """With no SPRITE_PIPELINE_HOME, the entry lands in FR 14's user file
+        `~/.sprite-pipeline/mannequin_profiles.json`, keyed by the GLB's
+        sha256 (HOME is injected so the real one is never touched)."""
+        os.environ.pop("SPRITE_PIPELINE_HOME", None)
+        user_home = self.tmp / "user-home"
+        old_home = os.environ.get("HOME")
+        os.environ["HOME"] = str(user_home)
+        self.addCleanup(lambda: os.environ.__setitem__("HOME", old_home)
+                        if old_home is not None else os.environ.pop("HOME", None))
         code, out = self.run_cli(["mannequin-profile", str(self.glb)])
         self.assertEqual(code, 0, out)
-        doc = self._doc()
+        user = user_home / ".sprite-pipeline" / "mannequin_profiles.json"
+        doc = json.loads(user.read_text())
         self.assertEqual(doc["profiles"][self.digest],
                          {"glb_name": self.glb.name, "resolution": 704,
                           "body_h": 300, "floor_y": 500})
 
-    def test_r6_a_second_run_for_the_same_hash_replaces_no_duplicate(self):
-        """The same GLB measured twice leaves exactly one entry — the second
-        measurement — and unrelated entries survive."""
+    def test_r8_a_second_run_for_the_same_hash_replaces_no_duplicate(self):
+        """The same GLB measured twice leaves exactly one entry for its hash —
+        the second measurement — and an unrelated entry survives. The raw
+        file is checked too: a JSON object with the hash written twice would
+        parse to one key and hide the duplicate."""
+        other = {"glb_name": "other.glb", "resolution": 704, "body_h": 111,
+                 "floor_y": 222}
+        self.user.parent.mkdir(parents=True, exist_ok=True)
+        self.user.write_text(json.dumps({"profiles": {"a" * 64: other}}))
         self.frame = mannequins.tpose_render(body_h=300, floor_y=500)
         self.run_cli(["mannequin-profile", str(self.glb)])
         self.frame = mannequins.tpose_render(body_h=310, floor_y=510)
         code, out = self.run_cli(["mannequin-profile", str(self.glb)])
         self.assertEqual(code, 0, out)
+        self.assertEqual(self.user.read_text().count(self.digest), 1)
         doc = self._doc()
-        self.assertEqual(len(doc["profiles"]), 1)
-        self.assertEqual(doc["profiles"][self.digest]["body_h"], 310)
-        self.assertEqual(doc["profiles"][self.digest]["floor_y"], 510)
+        self.assertEqual(doc["profiles"],
+                         {"a" * 64: other,
+                          self.digest: {"glb_name": self.glb.name, "resolution": 704,
+                                        "body_h": 310, "floor_y": 510}})
 
-    def test_r6_keeps_other_entries_of_the_user_file(self):
+    def test_r7_keeps_other_entries_of_the_user_file(self):
         other = {"glb_name": "other.glb", "resolution": 704, "body_h": 111,
                  "floor_y": 222}
         self.user.parent.mkdir(parents=True, exist_ok=True)
@@ -592,23 +614,65 @@ class TestMannequinProfileCommand(unittest.TestCase):
         self.assertEqual(doc["profiles"]["a" * 64], other)
         self.assertEqual(len(doc["profiles"]), 2)
 
-    def test_r6_the_measured_profile_loads_over_the_packaged_one(self):
-        """FR 14: what the command wrote is visible to the merged loader."""
+    def test_r7_the_written_profile_reaches_the_default_loader(self):
+        """FR 14: what the command wrote is what the merged loader reads from
+        its own default user path (the writer and the reader agree on the
+        file), alongside the packaged profiles."""
         self.run_cli(["mannequin-profile", str(self.glb)])
-        merged = metrics.load_profiles(user_path=self.user)
-        self.assertEqual(merged[self.digest]["body_h"], 300)
+        merged = metrics.load_profiles()
+        self.assertEqual(merged[self.digest],
+                         {"glb_name": self.glb.name, "resolution": 704,
+                          "body_h": 300, "floor_y": 500})
+        # the packaged ual-female.glb profile survives the merge
+        self.assertEqual(
+            merged["b97d76c65bd2805e1b04d049fd42cbb9268018f24678858fdafa6891b3f2ddf4"]["body_h"],
+            324)
 
-    def test_r6_an_invalid_user_file_is_replaced_not_merged(self):
+    def test_r7_an_invalid_user_file_is_replaced_not_merged(self):
         self.user.parent.mkdir(parents=True, exist_ok=True)
         self.user.write_text("{not json")
         code, out = self.run_cli(["mannequin-profile", str(self.glb)])
         self.assertEqual(code, 0, out)
         self.assertEqual(list(self._doc()["profiles"]), [self.digest])
 
-    def test_r6_a_missing_glb_exits_2(self):
+    def test_r7_a_missing_glb_exits_2(self):
         code, out = self.run_cli(["mannequin-profile", str(self.tmp / "nope.glb")])
         self.assertEqual(code, 2, out)
         self.assertIn(str(self.tmp / "nope.glb"), out)
+
+    def test_r7_measures_the_frame_the_drive_render_writes(self):
+        """The real render path with Blender faked at subprocess.run: the
+        A_TPose render at 704 writes its frames where the drive plan points,
+        and the command measures the first one."""
+        cli.render_mannequin = self._old_render
+        old_run = subprocess.run
+        self.addCleanup(setattr, subprocess, "run", old_run)
+        calls = []
+
+        def fake_run(argv, **kw):
+            argv = [str(a) for a in argv]
+            calls.append((argv, kw.get("env") or {}))
+            if argv[0] == "blender":
+                rest = argv[argv.index("--") + 1:]
+                frames = Path(rest[2])
+                frames.mkdir(parents=True, exist_ok=True)
+                mannequins.tpose_render(body_h=300, floor_y=500).save(frames / "f0001.png")
+                mannequins.tpose_render(body_h=280, floor_y=480).save(frames / "f0002.png")
+            return _Res(0)
+
+        subprocess.run = fake_run
+        code, out = self.run_cli(["mannequin-profile", str(self.glb)])
+        self.assertEqual(code, 0, out)
+        blender = [(a, e) for a, e in calls if a[0] == "blender"]
+        self.assertEqual(len(blender), 1)
+        argv, env = blender[0]
+        rest = argv[argv.index("--") + 1:]
+        self.assertEqual(rest[:2], [str(self.glb), "A_TPose"])
+        self.assertEqual(rest[3], "0")  # facing s
+        self.assertEqual((env.get("RW"), env.get("RH")), ("704", "704"))
+        self.assertEqual(json.loads(out.strip().splitlines()[-1]),
+                         {"glb_name": self.glb.name, "resolution": 704,
+                          "body_h": 300, "floor_y": 500})
 
     def test_render_mannequin_fails_loudly_when_no_frame_lands(self):
         """The real render path (Blender faked at subprocess.run to write
