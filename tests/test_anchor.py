@@ -485,7 +485,9 @@ class TestProfileGate(GoEnv):
         mannequins.register(self.glb_bytes, glb_name="ual.glb")
         spec_still().save(self.base / "stills" / "courier.png")
         fake = FakeRun(after={"sprite_pipeline.comfy edit": self._write_still,
-                             "cutout": self._write_keyed})
+                             "cutout": self._write_keyed,
+                             # FR 7: Blender renders the direction guides
+                             "render_drive.py": mannequins.fake_blender})
         code, out = self.run_cli(["go", str(self.project)], fake=fake)
         self.assertEqual(code, 0, out)
 
@@ -594,7 +596,9 @@ class TestEditConsumesTheAnchoredMaster(GoEnv):
         mannequins.register(self.glb_bytes, glb_name="ual.glb")
         spec_still().save(self.base / "stills" / "courier.png")
         self.fake = FakeRun(after={"sprite_pipeline.comfy edit": self._write_still,
-                                   "cutout": self._write_keyed})
+                                   "cutout": self._write_keyed,
+                             # FR 7: Blender renders the direction guides
+                             "render_drive.py": mannequins.fake_blender})
 
     def _write_still(self, argv):
         dst = Path(argv[argv.index("--copy-to") + 1])
@@ -667,7 +671,9 @@ class TestEditConsumesTheAnchoredMaster(GoEnv):
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_bytes(_stub_glb_bytes())
         return FakeRun(after={"sprite_pipeline.comfy edit": _copy,
-                              "cutout": _keyed})
+                              "cutout": _keyed,
+                              # FR 7: Blender renders the direction guides
+                              "render_drive.py": mannequins.fake_blender})
 
 
 class TestInjectedProfilesAnchorGo(GoEnv):
@@ -684,7 +690,9 @@ class TestInjectedProfilesAnchorGo(GoEnv):
         (self.base / "anims" / "ual.glb").write_bytes(self.PAYLOAD)
         self.prof = profile(MALE_DIRS)
         self.fake = FakeRun(after={"sprite_pipeline.comfy edit": self._write_still,
-                                   "cutout": self._write_keyed})
+                                   "cutout": self._write_keyed,
+                             # FR 7: Blender renders the direction guides
+                             "render_drive.py": mannequins.fake_blender})
 
     def go_profiles(self):
         return {**metrics.load_profiles(user_path=Path(str(self.home / "nope"))),
