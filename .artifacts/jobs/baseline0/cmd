@@ -1,2 +1,0 @@
-# commit 8c0c746afb62486374f42adcc0f4c732c0213b3c
-PYTHONPATH=. uv run pytest tests/ -q > /data/worktrees/sprite-pipeline/sprite-pipeline-34/.artifacts/jobs/baseline0/raw 2>&1
