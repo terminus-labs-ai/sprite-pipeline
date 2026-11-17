@@ -447,14 +447,24 @@ class TestRerunSkipsExistingStills(ReviewFixture):
 
     def test_r3_force_redoes_the_edits(self):
         # the stop alone never re-runs existing still work; --force overrides
-        # (amendment 12: an `s` redo deletes the other stills, so --force
-        # --no-stop makes all five edits again in one run)
+        # (amendment 12: --force redoes `s`, which deletes the other stills,
+        # and the run stops at the `s` stop — the other edits wait for the
+        # new `s` approval)
         self.seed_stills()
+        for d in GEN_DIRS:
+            (self.master / f"{d}.edit.png").write_bytes(TINY_PNG)
         fake = self._fresh_fake()
-        code, out = self.run_cli(["go", str(self.project), "--force", "--no-stop",
-                                  "--stage", "pixel"], fake=fake)
+        code, out = self.run_cli(["go", str(self.project), "--force"], fake=fake)
         self.assertEqual(code, 0, out)
-        self.assertEqual(len(fake.edit_calls()), 5, "\n".join(" ".join(c) for c in fake.calls))
+        edits = fake.edit_calls()
+        self.assertEqual([Path(e[e.index("--copy-to") + 1]).name for e in edits],
+                         ["s.edit.png"],
+                         "\n".join(" ".join(c) for c in fake.calls))
+        for d in EDIT_DIRS:
+            self.assertFalse((self.master / f"{d}.png").exists(), d)
+            self.assertFalse((self.master / f"{d}.edit.png").exists(), d)
+        self.assertTrue((self.out_char / "s-sheet.png").is_file())
+        self.assert_stopped_with_approve_command(code, out)
 
 
 # -------------------------------------------------------------------- AC5-r1: approve

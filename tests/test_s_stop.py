@@ -6,11 +6,12 @@ With Blender and ComfyUI faked and generate `[s, se, e, ne, n]`, a first
 `approve` writes `s.approved` holding the sha256 of `master/s.png`; the next
 `go` edits the other four from `master/s.png` and stops at the full review
 stop, where `approve` writes refs.approved. `--no-stop` on a fresh output
-runs all five edits in one run. An `s` redo (`--reroll <char>:s=<seed>`, a
-missing `master/s.png` or a changed `s.png` the approval no longer matches)
-deletes the other four `master/<d>.png` and `master/<d>.edit.png` and stops
-at the `s` stop again; a non-`s` `--reroll` with `s` unapproved runs no edit
-and prints that it waits for the `s` approval. When the `s` edit fails, no
+runs all five edits in one run. An `s` redo (`--reroll <char>:s=<seed>`,
+`--force` or a missing `master/s.png`) deletes the other four
+`master/<d>.png` and `master/<d>.edit.png` and stops at the `s` stop again;
+a changed `s.png` the approval no longer matches stops at the `s` stop but
+deletes nothing — `go` redid no `s`. A non-`s` `--reroll` with `s`
+unapproved runs no edit and prints that it waits for the `s` approval. When the `s` edit fails, no
 cutout and no other edit runs and the other stills stay untouched. A
 project generating only `s` has no `s` stop: it stops at the full review
 stop and `approve` writes refs.approved.
@@ -283,26 +284,28 @@ class TestSOnlyProjectHasNoSStop(GuidedFixture):
 
 class TestChangedSRestops(SStopFixture):
     """AC20-r11: `s.approved` present but `master/s.png` bytes changed —
-    `go` stops at the `s` stop again and edits no other direction; the other
-    stills are stale and deleted, remade from the changed `s` once it is
-    approved again."""
+    `go` stops at the `s` stop again and edits no other direction. The
+    changed `s` was not redone by `go`, so nothing is deleted: the other
+    stills stay byte-identical, and once `approve` records the changed `s`
+    the next `go` edits nothing — the stills exist — and stops at the full
+    review stop."""
 
-    def test_ac20_r11_changed_s_stops_at_the_s_stop_and_invalidates(self):
+    def test_ac20_r11_changed_s_stops_at_the_s_stop_and_waits(self):
         self.build_all()
         # s.png changed out-of-band: the approval no longer matches
         (self.master / "s.png").write_bytes(
             (self.master / "n.png").read_bytes())
+        before = {d: (self.master / f"{d}.png").read_bytes() for d in EDIT_DIRS}
         fake = self._fresh_fake()
         code, out = self.go(fake=fake)
         self.assertEqual(code, 0, out)
         self.assertEqual(fake.edit_calls(), [])
-        for d in EDIT_DIRS:  # stale stills deleted
-            self.assertFalse((self.master / f"{d}.png").exists(), d)
-            self.assertFalse((self.master / f"{d}.edit.png").exists(), d)
+        for d in EDIT_DIRS:  # not deleted, not re-edited: byte-identical
+            self.assertEqual((self.master / f"{d}.png").read_bytes(), before[d], d)
         self.assertTrue((self.out_char / "s-sheet.png").is_file())
         self.assert_stopped_with_approve_command(code, out)
-        # approve records the changed s; the next run remakes the other four
-        # from it and reaches the review stop
+        # approve records the changed s; the stills exist so the next run
+        # edits nothing and stops at the full review stop
         code, out = self.approve()
         self.assertEqual(code, 0, out)
         self.assertEqual((self.out_char / "s.approved").read_text().strip(),
@@ -310,11 +313,49 @@ class TestChangedSRestops(SStopFixture):
         fake = self._fresh_fake()
         code, out = self.go(fake=fake)
         self.assertEqual(code, 0, out)
-        edits = fake.edit_calls()
-        self.assertEqual(len(edits), 4, "\n".join(" ".join(c) for c in fake.calls))
-        for e in edits:
-            self.assertEqual(e[e.index("--image") + 1], str(self.master / "s.png"))
+        self.assertEqual(fake.edit_calls(), [],
+                         "\n".join(" ".join(c) for c in fake.calls))
         self.assertTrue((self.out_char / "refs-sheet.png").is_file())
+        self.assert_stopped_with_approve_command(code, out)
+
+
+# ----------------------------- FR 7/FR 10 regression: --no-stop deletes nothing
+
+class TestNoStopKeepsTheOtherStills(SStopFixture):
+    """Regression (FR 7 dec-753, FR 10): the other directions' stills are
+    deleted only when `go` redoes `s`. A `--no-stop` run writes no
+    `s.approved`, so the `s` it made is unapproved — but present — and the
+    next run must neither re-edit nor delete what it made."""
+
+    def test_second_no_stop_run_edits_nothing(self):
+        # --stage keeps the assertion on the still work (the faked pipeline
+        # cannot satisfy export)
+        code, out = self.go("--no-stop", "--stage", "pixel")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(len(self.edits()), 5)
+        before = {f: (self.master / f).read_bytes()
+                  for d in EDIT_DIRS for f in (f"{d}.png", f"{d}.edit.png")}
+        fake = self._fresh_fake()
+        code, out = self.go("--no-stop", "--stage", "pixel", fake=fake)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(fake.edit_calls(), [],
+                         "\n".join(" ".join(c) for c in fake.calls))
+        for f, b in before.items():
+            self.assertEqual((self.master / f).read_bytes(), b, f)
+
+    def test_plain_go_after_no_stop_deletes_nothing(self):
+        code, out = self.go("--no-stop", "--stage", "pixel")
+        self.assertEqual(code, 0, out)
+        before = {f: (self.master / f).read_bytes()
+                  for d in EDIT_DIRS for f in (f"{d}.png", f"{d}.edit.png")}
+        fake = self._fresh_fake()
+        code, out = self.go(fake=fake)
+        self.assertEqual(fake.edit_calls(), [],
+                         "\n".join(" ".join(c) for c in fake.calls))
+        for f, b in before.items():
+            self.assertEqual((self.master / f).read_bytes(), b, f)
+        # the unapproved-but-present s stops the run at the s stop
+        self.assertTrue((self.out_char / "s-sheet.png").is_file())
         self.assert_stopped_with_approve_command(code, out)
 
 

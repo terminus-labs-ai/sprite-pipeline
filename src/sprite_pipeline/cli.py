@@ -111,9 +111,9 @@ def resolve_run(project_path, args):
 def _redoes_stills(ctx, char, cs, reroll):
     """Whether `go` prepares this character's stills this run (FR 6, FR 10):
     a stale source (purged and rebuilt), a missing direction still, no
-    matching approval, an unapproved `s` (amendment 12: the other stills are
-    edited from it, so a changed `s` is their redo too), or a reroll. The
-    same condition the run loop uses."""
+    matching approval, an unapproved `s` (amendment 12: the run still
+    reaches the `s` stop), or a reroll. The same condition the run loop
+    uses."""
     stale = (ctx.project.output_root() / char).is_dir() and ctx.source_stale(char, cs)
     s_wait = (any(d != "s" for d in ctx.project.generate)
               and not ctx.s_approved(char))
@@ -163,12 +163,10 @@ def _print_still_plan(proj, ctx, char, reroll, force, out):
     master = ctx.master(char)
     anchored = master / "still.png"
     keyed = master / "s.keyed.png"
-    # an `s` redo (reroll, --force or a missing or unapproved master/s.png)
-    # deletes the other stills, so the plan marks them for an edit again
+    # an `s` redo (reroll, --force or a missing master/s.png) deletes the
+    # other stills, so the plan marks them for an edit again
     s_redo = (force or reroll.get("s") is not None
-              or not ctx.dir_still(char, "s").is_file()
-              or (any(d != "s" for d in proj.generate)
-                  and not ctx.s_approved(char)))
+              or not ctx.dir_still(char, "s").is_file())
     for step in still_plan(proj, char):
         if step["kind"] == "prepare":
             pre = "anchor" if (force or not anchored.is_file()) else "skip"
@@ -287,18 +285,17 @@ def run_stills(ctx, turn, char, reroll, force, log, out, no_stop=False):
                 # a redone `s` drops its approval even when the new still
                 # hashes the same: the `s` stop reviews it again
                 ctx.s_approved_file(char).unlink(missing_ok=True)
-            if s_redo or not keyed.is_file():
-                cmds = stages.plan_cutout(dst, master)
-                ok = run_cmds(ctx, cmds, log, out) and ok
-            # the other directions are edited from `s`: while `s` is not
-            # approved their stills are stale — deleted and remade from the
-            # approved `s` (dec-753; also a changed `s.png` the approval no
-            # longer matches)
-            if s_dirs and not ctx.s_approved(char):
+                # FR 7 (dec-753): a redone `s` deletes every other
+                # direction's stills — remade from the new `s` once it is
+                # approved again. An unapproved-but-present `s` (a changed
+                # `s.png`, a `--no-stop` run) deletes nothing.
                 for other in s_dirs:
                     for f in (ctx.dir_still(char, other),
                               master / f"{other}.edit.png"):
                         f.unlink(missing_ok=True)
+            if s_redo or not keyed.is_file():
+                cmds = stages.plan_cutout(dst, master)
+                ok = run_cmds(ctx, cmds, log, out) and ok
             continue
         if dst.is_file() and reroll.get(d) is None and not force:
             continue  # skip-if-exists (FR 10)
