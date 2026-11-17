@@ -147,8 +147,11 @@ class TestRunCmdsFailureOutput(Env):
             (master / f"{d}.png").write_bytes(_make_tiny_png())
         # approve the five stills just written (plain hash approval)
         from sprite_pipeline import cli
-        code = cli.main(["approve", str(project), "courier"])
-        self.assertEqual(code, 0)
+        # amendment 12: approve serves the s stop first, so it takes two
+        # calls — s.approved, then refs.approved
+        for _ in range(2):
+            code = cli.main(["approve", str(project), "courier"])
+            self.assertEqual(code, 0)
 
         fake = FakeRun(fails={
             "video-frames": (2, "unrecognized arguments: --foo\n")
@@ -175,8 +178,11 @@ class TestRunCmdsFailureOutput(Env):
         for d in ["s", "se", "e", "ne", "n"]:
             (master / f"{d}.png").write_bytes(_make_tiny_png())
         from sprite_pipeline import cli
-        code = cli.main(["approve", str(project), "courier"])
-        self.assertEqual(code, 0)
+        # amendment 12: approve serves the s stop first, so it takes two
+        # calls — s.approved, then refs.approved
+        for _ in range(2):
+            code = cli.main(["approve", str(project), "courier"])
+            self.assertEqual(code, 0)
 
         fake = FakeRun(fails={
             "video-frames": (1, "some error\n")
@@ -200,8 +206,11 @@ class TestRunCmdsFailureOutput(Env):
         for d in ["s", "se", "e", "ne", "n"]:
             (master / f"{d}.png").write_bytes(_make_tiny_png())
         from sprite_pipeline import cli
-        code = cli.main(["approve", str(project), "courier"])
-        self.assertEqual(code, 0)
+        # amendment 12: approve serves the s stop first, so it takes two
+        # calls — s.approved, then refs.approved
+        for _ in range(2):
+            code = cli.main(["approve", str(project), "courier"])
+            self.assertEqual(code, 0)
 
         fake = FakeRun()  # everything succeeds
         code, out = self.run_cli([

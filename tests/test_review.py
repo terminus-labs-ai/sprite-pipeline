@@ -68,14 +68,15 @@ def guide_line(pronoun):
 
 
 def expected_prompt(turn, d, pronoun):
-    """The AC4-r1/r2 pinned prompt: the framing plus the view's turn text with
-    the pronoun substituted (the real turn texts hold {pos} / {obj} fields),
-    then the FR 7 guide line."""
+    """The AC4-r1/r2 pinned prompt: the amendment 12 mannequin-camera framing
+    plus the view's turn text with the pronoun substituted (the real turn
+    texts hold {pos} / {obj} fields), then the FR 7 guide line."""
     obj = OBJ[pronoun]
     pos = POS[pronoun]
     return ("The exact same character with the exact same outfit, colors, proportions "
-            f"and art style, seen from the exact same high isometric camera angle "
-            f"looking down at {obj}, standing in the same relaxed pose, but now "
+            f"and art style, seen from the same high isometric camera angle as the "
+            f"mannequin in image 2, looking down at {obj} at about 45 degrees, "
+            f"but now "
             + turn[d].format(obj=obj, pos=pos) + "." + TAIL + " " + guide_line(pronoun))
 
 
@@ -234,12 +235,16 @@ class ReviewFixture(Env):
 
     def seed_stills(self):
         # real PNG bytes (standing figures): a sheet over them must build and
-        # the run's FR 6 check accepts them
+        # the run's FR 6 check accepts them; s.approved marks the s stop as
+        # already passed (amendment 12), so a seeded set sits at the full stop
         im = mannequins.standing_still()
         self.master.mkdir(parents=True, exist_ok=True)
+        im.save(self.master / "still.png")  # the anchored still (amendment 12)
         for d in GEN_DIRS:
             im.save(self.master / f"{d}.png")
         (self.master / "s.keyed.png").write_bytes(TINY_PNG)
+        h = hashlib.sha256((self.master / "s.png").read_bytes()).hexdigest()
+        (self.out_char / "s.approved").write_text(h + "\n")
 
     def approve_cmd(self):
         return ["approve", str(self.project), "courier"]
@@ -258,15 +263,23 @@ class ReviewFixture(Env):
 # ---------------------------------------------------------------- AC4-r1: first run
 
 class TestFirstRunStopsForReview(ReviewFixture):
-    """AC4-r1: fake ComfyUI, example project (pronoun she), no approval: 4 edit
-    calls (s, e, ne, n) with the pinned turn prompts, refs-sheet.png written,
-    0 animate calls, exit 0 printing the approve command."""
+    """AC4-r1 (amendment 12): fake ComfyUI, example project (pronoun she), no
+    approval: the first `go` edits `s` only and stops at s-sheet.png;
+    `approve` writes s.approved; the next `go` makes the 4 edits (se, e, ne,
+    n) with the pinned turn prompts, writes refs-sheet.png, makes 0 animate
+    calls and exits 0 printing the approve command."""
 
     def test_r1_four_edit_calls_pinned_prompts_exit_zero_with_approve_command(self):
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+        self.assertEqual(code, 0, out)  # the s stop exits 0
+        self.assert_stopped_with_approve_command(code, out)
+        code, out = self.run_cli(self.approve_cmd())
+        self.assertEqual(code, 0, out)
+        fake = self._fresh_fake()
+        code, out = self.run_cli(["go", str(self.project)], fake=fake)
         self.assertEqual(code, 0, out)  # the review stop exits 0
-        edits = self.fake.edit_calls()
-        self.assertEqual(len(edits), 4, "\n".join(" ".join(c) for c in self.fake.calls))
+        edits = fake.edit_calls()
+        self.assertEqual(len(edits), 4, "\n".join(" ".join(c) for c in fake.calls))
         got = {e[e.index("--seed") + 1] for e in edits}
         for d in EDIT_DIRS:
             # FR 7: the raw edit is kept as <d>.edit.png
@@ -277,24 +290,19 @@ class TestFirstRunStopsForReview(ReviewFixture):
             # the pinned FR 7 prompt: the view's turn text in her/her
             self.assertEqual(e[e.index("--prompt") + 1],
                              expected_prompt(self.turn, d, "she"))
-            # the edit input is the anchored 832x1024 master (FR 6)
+            # the edit input is the guided master s.png (amendment 12)
             img = Path(e[e.index("--image") + 1])
             self.assertEqual(img, self.master / "s.png")
             self.assertEqual(Image.open(img).size, (832, 1024))
             self.assertEqual(e[e.index("--pose-image") + 1],
                              str(self.master / f"{d}.guide.png"))
-        self.assertEqual(self.fake.animate_calls(), [])
-        # the anchored master on the edit canvas, palette key, direction
-        # stills on disk
+        self.assertEqual(fake.animate_calls(), [])
+        # the anchored still, the guided master on the edit canvas, palette
+        # key, direction stills on disk
         s = self.master / "s.png"
+        self.assertTrue((self.master / "still.png").is_file())
         self.assertTrue(s.is_file())
         self.assertEqual(Image.open(s).size, (832, 1024))
-        cut = [c for c in self.fake.calls if Path(c[0]).name == "sprite-gen"]
-        self.assertEqual(len(cut), 1, "\n".join(" ".join(c) for c in self.fake.calls))
-        self.assertEqual(cut[0][1], "cutout")
-        # sprite-gen 4.3.0 cutout: input is positional (no --source)
-        self.assertEqual(cut[0][2], str(s))
-        self.assertEqual(cut[0][cut[0].index("--key") + 1], "measured")
         for d in EDIT_DIRS:
             self.assertTrue((self.master / f"{d}.png").is_file(), d)
         sheet = self.out_char / "refs-sheet.png"
@@ -304,11 +312,15 @@ class TestFirstRunStopsForReview(ReviewFixture):
         self.assert_stopped_with_approve_command(code, out)
         self.assertIn(str(sheet), out)
 
-    def test_r1_no_se_edit_call(self):
+    def test_r1_the_first_run_edits_only_s(self):
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
         self.assertEqual(code, 0, out)
-        for e in self.fake.edit_calls():
-            self.assertNotEqual(e[e.index("--copy-to") + 1], str(self.master / "s.png"))
+        edits = self.fake.edit_calls()
+        self.assertEqual(len(edits), 1, "\n".join(" ".join(c) for c in self.fake.calls))
+        self.assertEqual(edits[0][edits[0].index("--copy-to") + 1],
+                         str(self.master / "s.edit.png"))
+        self.assertEqual(edits[0][edits[0].index("--prompt") + 1],
+                         expected_prompt(self.turn, "s", "she"))
 
     def test_r1_default_seed_is_the_project_seed(self):
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
@@ -340,6 +352,10 @@ class TestDirectionStillsShareTheReferenceCanvas(ReviewFixture):
         im.save(dst)
 
     def test_edit_output_keeps_the_edit_canvas_untouched(self):
+        code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+        self.assert_stopped_with_approve_command(code, out)
+        code, out = self.run_cli(self.approve_cmd())
+        self.assertEqual(code, 0, out)
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
         self.assertEqual(code, 0, out)
         for d in EDIT_DIRS:
@@ -395,14 +411,19 @@ class TestPronounThey(ReviewFixture):
 
     def test_r2_prompts_use_them_their(self):
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+        self.assert_stopped_with_approve_command(code, out)
+        code, out = self.run_cli(self.approve_cmd())
         self.assertEqual(code, 0, out)
-        edits = self.fake.edit_calls()
+        fake = self._fresh_fake()
+        code, out = self.run_cli(["go", str(self.project)], fake=fake)
+        self.assertEqual(code, 0, out)
+        edits = fake.edit_calls()
         self.assertEqual(len(edits), 4)
         for e in edits:
             d = Path(e[e.index("--copy-to") + 1]).name.split(".")[0]
             prompt = e[e.index("--prompt") + 1]
             self.assertEqual(prompt, expected_prompt(self.turn, d, "they"))
-            self.assertIn("looking down at them,", prompt)
+            self.assertIn("looking down at them at about 45 degrees", prompt)
             if "{pos}" in self.turn[d]:
                 self.assertIn("their", prompt)
             self.assertNotIn("{pos}", prompt)
@@ -426,12 +447,14 @@ class TestRerunSkipsExistingStills(ReviewFixture):
 
     def test_r3_force_redoes_the_edits(self):
         # the stop alone never re-runs existing still work; --force overrides
+        # (amendment 12: an `s` redo deletes the other stills, so --force
+        # --no-stop makes all five edits again in one run)
         self.seed_stills()
         fake = self._fresh_fake()
-        code, out = self.run_cli(["go", str(self.project), "--force"], fake=fake)
-        self.assertEqual(code, 0, out)  # stopped again before the animation stages
-        self.assertEqual(len(fake.edit_calls()), 4, "\n".join(" ".join(c) for c in fake.calls))
-        self.assert_stopped_with_approve_command(code, out)
+        code, out = self.run_cli(["go", str(self.project), "--force", "--no-stop",
+                                  "--stage", "pixel"], fake=fake)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(len(fake.edit_calls()), 5, "\n".join(" ".join(c) for c in fake.calls))
 
 
 # -------------------------------------------------------------------- AC5-r1: approve
@@ -468,8 +491,14 @@ class TestApproveThenContinue(ReviewFixture):
         self.assertIn("[courier] still preparation: skip", out)
 
     def test_r1_an_existing_run_made_of_go_approve_go(self):
-        # the user story: go stops, approve records, go continues
+        # the user story (amendment 12): go stops at the s sheet, approve
+        # records s.approved, go edits the rest and stops at the refs sheet,
+        # approve records refs.approved, go continues to the stages
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+        self.assert_stopped_with_approve_command(code, out)
+        code, out = self.run_cli(self.approve_cmd())
+        self.assertEqual(code, 0, out)
+        code, out = self.run_cli(["go", str(self.project)], fake=self._fresh_fake())
         self.assert_stopped_with_approve_command(code, out)
         code, out = self.run_cli(self.approve_cmd())
         self.assertEqual(code, 0, out)
@@ -634,10 +663,10 @@ class TestDirPromptAndSheet(unittest.TestCase):
                                     ("she", ("her", "her")),
                                     ("they", ("them", "their"))):
             want = ("The exact same character with the exact same outfit, colors, "
-                    "proportions and art style, seen from the exact same high "
-                    f"isometric camera angle looking down at {obj}, standing in the "
-                    f"same relaxed pose, but now so we see only {pos} back." + TAIL
-                    + " " + guide_line(pronoun))
+                    "proportions and art style, seen from the same high isometric "
+                    "camera angle as the mannequin in image 2, looking down at "
+                    f"{obj} at about 45 degrees, but now so we see only {pos} back."
+                    + TAIL + " " + guide_line(pronoun))
             self.assertEqual(stills.dir_prompt(turn, "n", pronoun), want)
 
     def test_bad_pronoun_raises(self):

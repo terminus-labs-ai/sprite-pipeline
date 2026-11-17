@@ -8,18 +8,20 @@
     sprite-pipeline mannequin-profile <glb>
 
 Per character: prepare the still (anchor it to the mannequin profile on the
-832x1024 edit canvas, then key the `s` master for the palette), then run the
-edit workflow once per generated direction other than the still's own, guided
-by the mannequin rendered facing that direction, with the view's turn prompt
-in the character's pronoun, and re-anchor the raw edit to that direction's
+832x1024 edit canvas as `master/still.png`), then edit `s` from it with the
+`s` mannequin guide, re-anchor to `master/s.png` and key it for the palette;
+every other generated direction is then edited from that guided `s` master,
+each with the mannequin rendered facing it and the view's turn prompt in the
+character's pronoun, and the raw edit re-anchored to that direction's
 mannequin (FR 6, FR 7); each step is skip-if-exists unless --force or
---reroll names it. `approve` writes
-refs.approved (hash of the direction stills); the review stop (FR 8) keeps the
-character's animation stages away until that hash matches, --no-stop skips the
-stop for one run. `mannequin-profile` renders a GLB's A_TPose at 704 with the
-drive camera facing each of s, se, e, ne, n, measures each and writes its
-per-direction profile to the host profile file (FR 14). Exit codes: 0 done or
-stopped for review, 1 a stage failed, 2 the project file is invalid.
+--reroll names it. `approve` serves two review stops (FR 8): the `s` stop
+(`s.approved`, the sha256 of `master/s.png`) before the other directions are
+edited from it, then the full stop (refs.approved, the hash of the direction
+stills); --no-stop skips both for one run. `mannequin-profile` renders a
+GLB's A_TPose at 704 with the drive camera facing each of s, se, e, ne, n,
+measures each and writes its per-direction profile to the host profile file
+(FR 14). Exit codes: 0 done or stopped for review, 1 a stage failed, 2 the
+project file is invalid.
 """
 import argparse
 from pathlib import Path
@@ -109,10 +111,14 @@ def resolve_run(project_path, args):
 def _redoes_stills(ctx, char, cs, reroll):
     """Whether `go` prepares this character's stills this run (FR 6, FR 10):
     a stale source (purged and rebuilt), a missing direction still, no
-    matching approval, or a reroll. The same condition the run loop uses."""
+    matching approval, an unapproved `s` (amendment 12: the other stills are
+    edited from it, so a changed `s` is their redo too), or a reroll. The
+    same condition the run loop uses."""
     stale = (ctx.project.output_root() / char).is_dir() and ctx.source_stale(char, cs)
+    s_wait = (any(d != "s" for d in ctx.project.generate)
+              and not ctx.s_approved(char))
     return (stale or bool(ctx.missing_stills(char)) or not ctx.is_approved(char)
-            or bool(reroll))
+            or s_wait or bool(reroll))
 
 
 def _print_plan_line(char, stage, argv, out):
@@ -130,133 +136,181 @@ def _print_plan_line(char, stage, argv, out):
 
 def still_plan(proj, char):
     """The still work one character needs, in run order: the prepare step
-    first (the anchored master — the still's own direction, `generate[0]`,
-    FR 6 — and its keyed copy), then one direction edit per generated
-    direction other than the master's — the still's own direction keeps the
-    anchored image. The shared definition of that loop behind
-    `_print_still_plan` (the dry-run plan) and `run_stills` (the real run),
-    so the two can never disagree about which steps exist or their order."""
+    first (the anchored still `master/still.png`, FR 6), then one guided
+    direction edit per direction — `s` first, edited from the anchored
+    still; every other generated direction edited from the guided master
+    `master/s.png` (amendment 12). The shared definition of that loop
+    behind `_print_still_plan` (the dry-run plan) and `run_stills` (the
+    real run), so the two can never disagree about which steps exist or
+    their order."""
     cs = next(c for c in proj.characters if c.name == char)
-    still_dir = proj.still_dir
     steps = [{"kind": "prepare", "char": char, "src": cs.still,
-              "dst": None, "turn": "", "dir": still_dir}]
+              "dst": None, "turn": "", "dir": "s"}]
     turn = project.load_view(proj.view)["turn"]
-    for d in proj.generate:
-        if d == still_dir:
-            continue
-        steps.append({"kind": "edit", "char": char, "src": None,
+    for d in ["s"] + [x for x in proj.generate if x != "s"]:
+        steps.append({"kind": "edit", "char": char,
+                      "src": "still.png" if d == "s" else "s.png",
                       "dst": None, "turn": turn[d], "dir": d})
     return steps
 
 
 def _print_still_plan(proj, ctx, char, reroll, force, out):
-    """FR 1 dry-run lines: the still anchoring, then per guided direction
-    the guide, the direction edit and the re-anchor (FR 7; skip marked;
-    --reroll and --force plan the direction again). Nothing is rendered."""
+    """FR 1 dry-run lines: the still anchoring, then per direction — `s`
+    first — the guide, the direction edit and the re-anchor (FR 7; skip
+    marked; --reroll and --force plan the direction again). Nothing is
+    rendered."""
     cs = next(c for c in proj.characters if c.name == char)
-    still_dir = proj.still_dir
-    master = ctx.dir_still(char, still_dir)
+    master = ctx.master(char)
+    anchored = master / "still.png"
+    keyed = master / "s.keyed.png"
+    # an `s` redo (reroll, --force or a missing or unapproved master/s.png)
+    # deletes the other stills, so the plan marks them for an edit again
+    s_redo = (force or reroll.get("s") is not None
+              or not ctx.dir_still(char, "s").is_file()
+              or (any(d != "s" for d in proj.generate)
+                  and not ctx.s_approved(char)))
     for step in still_plan(proj, char):
         if step["kind"] == "prepare":
-            pre = ("anchor" if (force or reroll.get(still_dir) is not None
-                                or not master.is_file()) else "skip")
-            print(f"[{char}] still preparation: {pre} {cs.still} -> {master} "
-                  f"(python; then sprite-gen cutout --key measured)", file=out)
+            pre = "anchor" if (force or not anchored.is_file()) else "skip"
+            print(f"[{char}] still preparation: {pre} {cs.still} -> {anchored} "
+                  f"(python)", file=out)
         else:
             d = step["dir"]
+            dst = ctx.dir_still(char, d)
             redo = (force or reroll.get(d) is not None
-                    or not ctx.dir_still(char, d).is_file())
+                    or not dst.is_file() or (d != "s" and s_redo))
             edit = "edit" if redo else "skip"
-            guide = ctx.master(char) / f"{d}.guide.png"
-            raw = ctx.master(char) / f"{d}.edit.png"
+            guide = master / f"{d}.guide.png"
+            raw = master / f"{d}.edit.png"
+            src = "the anchored still" if d == "s" else "the guided master"
             print(f"[{char}/{d}] guide ({'place' if redo else 'skip'}): A_TPose of "
                   f"{proj.animations[0].source.name} facing {d} (blender, cached in "
                   f"motion_cache) -> {guide}", file=out)
-            print(f"[{char}/{d}] direction edit ({edit}): {proj.workflows['edit']} on the "
-                  f"anchored master ({master.name}) with guide {guide.name} "
+            print(f"[{char}/{d}] direction edit ({edit}): {proj.workflows['edit']} on "
+                  f"{src} ({step['src']}) with guide {guide.name} "
                   f"({step['turn'][:48]}...) -> {raw}", file=out)
             print(f"[{char}/{d}] re-anchor ({'anchor' if redo else 'skip'}): "
-                  f"{raw} -> {ctx.dir_still(char, d)} (python)", file=out)
+                  f"{raw} -> {dst} (python)", file=out)
+            if d == "s":
+                cut = "cut" if (redo or not keyed.is_file()) else "skip"
+                print(f"[{char}/s] palette cutout ({cut}): {dst} -> {keyed} "
+                      f"(sprite-gen cutout --key measured)", file=out)
 
 
-def run_stills(ctx, turn, char, reroll, force, log, out):
-    """FR 6 + FR 7: anchor the still to the mannequin profile onto the master
-    (`master/<still_dir>.png`, the first generated direction), key the master
-    for the palette, then per generated direction other than the master's:
-    the guide (the anchor GLB's A_TPose rendered facing it, cached, placed
-    as `master/<d>.guide.png`), the edit on the anchored master with that
-    guide (raw output `master/<d>.edit.png`) and the re-anchor to
-    `master/<d>.png` (skip-if-exists on `<d>.png`; a reroll forces its
-    direction). A failed guide render, edit or re-anchor fails that
+def _guided_edit(ctx, turn, cs, profile, char, d, ref, seed, log, out):
+    """FR 7: one direction's guide, edit and re-anchor — the guide (the
+    anchor GLB's A_TPose rendered facing `d`, cached in motion_cache,
+    placed at the direction's target as `master/<d>.guide.png`), the edit
+    on `ref` with that guide (raw output `master/<d>.edit.png`) and the
+    re-anchor to `master/<d>.png`. `ref` is the anchored still
+    `master/still.png` for `s` and the guided master `master/s.png` for
+    every other direction (amendment 12). Returns False on a failed
+    guide render, edit or re-anchor."""
+    p = ctx.project
+    master = ctx.master(char)
+    guide = master / f"{d}.guide.png"
+    raw = master / f"{d}.edit.png"
+    dst = ctx.dir_still(char, d)
+    try:
+        render = render_mannequin(p.animations[0].source, d, cached=True)
+        stills.guide(render, guide, p.sprite.frame_size, profile, d)
+    except (SystemExit, metrics.FigureError) as e:
+        print(f"[{char}/{d}] guide {guide} failed: {e}", file=out)
+        return False
+    prompt = stills.dir_prompt(turn, d, cs.pronoun)
+    # the edit input is the 832x1024 reference (`ref`), absolute, resolved
+    # at load (FR 1, amendment 1); the raw output is kept as <d>.edit.png
+    argv = [sys.executable, "-m", "sprite_pipeline.comfy", "edit",
+            "--workflow", str(p.workflows["edit"]), "--image", str(ref),
+            "--pose-image", str(guide),
+            "--prompt", prompt, "--seed", str(seed),
+            "--prefix", f"{char}/dir-{d}", "--copy-to", str(raw)]
+    print(f"[{char}/{d}] direction edit: seed {seed}", file=out)
+    if not run_cmds(ctx, [(argv, "edit")], log, out):
+        return False
+    try:
+        stills.reanchor(raw, dst, p.sprite.frame_size, profile, d)
+    except metrics.FigureError as e:
+        print(f"[{char}/{d}] re-anchor failed: {e}", file=out)
+        return False
+    return True
+
+
+def run_stills(ctx, turn, char, reroll, force, log, out, no_stop=False):
+    """FR 6 + FR 7 (amendment 12): anchor the still to the mannequin profile
+    as `master/still.png`, then per direction — `s` first — the guide, the
+    guided edit and the re-anchor; `s` reads the anchored still and every
+    other generated direction reads the guided master `master/s.png`, whose
+    re-anchor the palette cutout `master/s.keyed.png` keys from. An `s`
+    redo (a --reroll of s, --force or a missing `master/s.png`) also keys
+    again and deletes every other direction's `master/<d>.png` and
+    `master/<d>.edit.png`: they are made again from the new `s` once it is
+    approved — while FR 8's `s` stop holds, their edits wait for the `s`
+    approval and a --reroll naming one prints that it waits. A failed `s`
+    guide, edit or re-anchor ends the run: the cutout does not run and no
+    other direction is touched; another direction's failure fails that
     direction only. Walks `still_plan`, the shared loop behind the dry-run
     plan. Returns False if a step failed."""
     p = ctx.project
     cs = next(c for c in p.characters if c.name == char)
-    # FR 6: the master is the anchored still: the edit input for every other
-    # direction and the palette source (its keyed cutout is
-    # `master/<still_dir>.keyed.png`). No direction ever receives the source
-    # still under its own name: each stays its own edit's output.
-    sd = p.still_dir
-    master = ctx.dir_still(char, sd)
-    keyed = ctx.master(char) / f"{sd}.keyed.png"
+    master = ctx.master(char)
+    anchored = master / "still.png"
+    s_png = ctx.dir_still(char, "s")
+    keyed = master / "s.keyed.png"
     ok = True
     # FR 14: the profile of the first-listed animation's GLB anchors the
     # stills: the packaged profiles merged with the host file
     profile = project.anchor_profile(p)
-
-    def forced(path):
-        return force or reroll.get(sd) is not None or not path.is_file()
+    s_dirs = [d for d in p.generate if d != "s"]
 
     for step in still_plan(p, char):
         if step["kind"] == "prepare":
-            if forced(master):
-                print(f"[{char}] still preparation: anchor {cs.still} -> {master}",
+            if force or not anchored.is_file():
+                print(f"[{char}] still preparation: anchor {cs.still} -> {anchored}",
                       file=out)
-                stills.anchor(cs.still, master, p.sprite.frame_size, profile, sd)
-            if force or reroll.get(sd) is not None or not keyed.is_file():
-                cmds = stages.plan_cutout(master, ctx.master(char))
-                ok = run_cmds(ctx, cmds, log, out) and ok
+                stills.anchor(cs.still, anchored, p.sprite.frame_size, profile, "s")
             # FR 10 amendment 2: fingerprint the source still whenever the
             # stills are prepared (also refreshes a missing/legacy hash)
             ctx.write_source_hash(char, cs)
-        else:
-            d = step["dir"]
-            dst = ctx.dir_still(char, d)
-            seed = reroll.get(d, p.seed)
-            if dst.is_file() and reroll.get(d) is None and not force:
-                continue  # skip-if-exists (FR 10)
-            guide = ctx.master(char) / f"{d}.guide.png"
-            raw = ctx.master(char) / f"{d}.edit.png"
-            # FR 7: the guide is the anchor GLB's A_TPose facing d (cached
-            # in motion_cache: a cached render skips Blender), placed at the
-            # direction's target on the edit canvas
-            try:
-                render = render_mannequin(p.animations[0].source, d, cached=True)
-                stills.guide(render, guide, p.sprite.frame_size, profile, d)
-            except (SystemExit, metrics.FigureError) as e:
-                print(f"[{char}/{d}] guide {guide} failed: {e}", file=out)
-                ok = False
-                continue
-            prompt = stills.dir_prompt(turn, d, cs.pronoun)
-            # the edit input is the anchored 832x1024 master itself (FR 6):
-            # absolute, resolved at load (FR 1, amendment 1); the raw output
-            # is kept as <d>.edit.png
-            argv = [sys.executable, "-m", "sprite_pipeline.comfy", "edit",
-                    "--workflow", str(p.workflows["edit"]), "--image", str(master),
-                    "--pose-image", str(guide),
-                    "--prompt", prompt, "--seed", str(seed),
-                    "--prefix", f"{char}/dir-{d}", "--copy-to", str(raw)]
-            print(f"[{char}/{d}] direction edit: seed {seed}", file=out)
-            if not run_cmds(ctx, [(argv, "edit")], log, out):
-                ok = False
-                continue
-            # FR 7: re-anchor the raw edit to the direction's target, floor
-            # and centre, without the standing-figure rule
-            try:
-                stills.reanchor(raw, dst, p.sprite.frame_size, profile, d)
-            except metrics.FigureError as e:
-                print(f"[{char}/{d}] re-anchor failed: {e}", file=out)
-                ok = False
+            continue
+        d = step["dir"]
+        dst = ctx.dir_still(char, d)
+        if d == "s":
+            s_redo = (force or reroll.get("s") is not None
+                      or not dst.is_file())
+            if s_redo:
+                if not _guided_edit(ctx, turn, cs, profile, char, "s",
+                                    anchored, reroll.get("s", p.seed), log, out):
+                    # FR 7 (dec-753): an `s` failure runs no cutout and
+                    # touches no other direction
+                    return False
+                # a redone `s` drops its approval even when the new still
+                # hashes the same: the `s` stop reviews it again
+                ctx.s_approved_file(char).unlink(missing_ok=True)
+            if s_redo or not keyed.is_file():
+                cmds = stages.plan_cutout(dst, master)
+                ok = run_cmds(ctx, cmds, log, out) and ok
+            # the other directions are edited from `s`: while `s` is not
+            # approved their stills are stale — deleted and remade from the
+            # approved `s` (dec-753; also a changed `s.png` the approval no
+            # longer matches)
+            if s_dirs and not ctx.s_approved(char):
+                for other in s_dirs:
+                    for f in (ctx.dir_still(char, other),
+                              master / f"{other}.edit.png"):
+                        f.unlink(missing_ok=True)
+            continue
+        if dst.is_file() and reroll.get(d) is None and not force:
+            continue  # skip-if-exists (FR 10)
+        if s_dirs and not no_stop and not ctx.s_approved(char):
+            # FR 8 (dec-750, dec-755): the `s` stop holds the other
+            # direction edits until `s` is approved
+            if reroll.get(d) is not None:
+                print(f"[{char}/{d}] {d} waits for the s approval", file=out)
+            continue
+        if not _guided_edit(ctx, turn, cs, profile, char, d, s_png,
+                            reroll.get(d, p.seed), log, out):
+            ok = False
     return ok
 
 
@@ -296,8 +350,12 @@ def run_cmds(ctx, cmds, log, out=None):
 
 def cmd_approve(args, out, **load_kwargs):
     """`sprite-pipeline approve <project.yaml> <character>`: record the review
-    (FR 8). refs.approved holds the hash of the direction stills; exit 2 with
-    the missing stills named if any does not exist yet."""
+    (FR 8). The `s` stop comes first (amendment 12): while the project
+    generates directions besides `s` and `master/s.png` exists but
+    `s.approved` does not hold its sha256, `approve` writes `s.approved`
+    only; the full stop's refs.approved (hash of the direction stills)
+    comes on the next call, and exits 2 with the missing stills named if
+    any does not exist yet."""
     try:
         proj = project.load_project(args["project_file"], profiles=load_kwargs.get("profiles"))
     except ValueError as e:
@@ -309,15 +367,21 @@ def cmd_approve(args, out, **load_kwargs):
               file=sys.stderr)
         return 2
     ctx = stages.StageCtx(proj, config.load())
-    missing = ctx.missing_stills(args["character"])
+    char = args["character"]
+    if (any(d != "s" for d in proj.generate)
+            and ctx.dir_still(char, "s").is_file()
+            and not ctx.s_approved(char)):
+        ctx.write_s_approved(char)
+        print(f"[{char}] approved {ctx.s_approved_file(char)}", file=out)
+        return 0
+    missing = ctx.missing_stills(char)
     if missing:
         print(f"approve: direction stills missing, run go first: "
-              f"{', '.join(str(ctx.dir_still(args['character'], d)) for d in missing)}",
+              f"{', '.join(str(ctx.dir_still(char, d)) for d in missing)}",
               file=sys.stderr)
         return 2
-    ctx.write_refs_approved(args["character"])
-    print(f"[{args['character']}] approved {ctx.refs_approved(args['character'])}",
-          file=out)
+    ctx.write_refs_approved(char)
+    print(f"[{char}] approved {ctx.refs_approved(char)}", file=out)
     return 0
 
 
@@ -501,6 +565,9 @@ def _go(args, out, load_kwargs=None):
     kit_stages = [s for s in selected if s in stages.KIT_STAGES]
     dry = args["dry_run"]
     ctx = stages.StageCtx(proj, cfg)
+    # FR 8 (amendment 12): the `s` stop exists only when the project
+    # generates a direction besides `s`
+    s_dirs = [d for d in proj.generate if d != "s"]
     log, status, failed, stopped = [], {}, [], []
 
     for char in chars:
@@ -536,6 +603,14 @@ def _go(args, out, load_kwargs=None):
         if dry:
             # --dry-run writes nothing: the FR 1 plan lines plus the verdict
             _print_still_plan(proj, ctx, char, reroll, force, out)
+            if s_dirs and not args["no_stop"] and not ctx.s_approved(char):
+                # FR 8 (amendment 12): the `s` stop's verdict comes first
+                stopped.append(char)
+                print(f"[{char}] review stop: s unapproved; after checking "
+                      f"{ctx.s_sheet(char)} run: "
+                      f"sprite-pipeline approve {args['project_file']} {char}",
+                      file=out)
+                continue
             if not args["no_stop"] and (not ctx.is_approved(char) or rerolled):
                 stopped.append(char)
                 missing = ctx.missing_stills(char)
@@ -544,19 +619,49 @@ def _go(args, out, load_kwargs=None):
                       f"after checking {ctx.refs_sheet(char)} run: "
                       f"sprite-pipeline approve {args['project_file']} {char}", file=out)
                 continue
-        elif not (args["no_stop"] and ctx.is_approved(char) and not rerolled):
+        elif not (args["no_stop"] and ctx.is_approved(char)
+                  and (not s_dirs or ctx.s_approved(char)) and not rerolled):
             # FR 6 + FR 7 + FR 8: still preparation, palette cutout, direction
-            # edits, then the review sheet and the stop verdict.
+            # edits, then the review sheets and the stop verdicts.
             stop_now = not ctx.is_approved(char) or rerolled
             # --force alone over an approved complete set re-runs the chosen
             # stage's own commands, never the reviewed stills; redoing a still
             # would invalidate the approval it passed (a reroll does redo it)
-            redo_stills = not five or not ctx.is_approved(char) or rerolled
+            redo_stills = (not five or not ctx.is_approved(char) or rerolled
+                           or (s_dirs and not ctx.s_approved(char)))
             if redo_stills:
                 if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
-                                  reroll, force, log, out):
+                                  reroll, force, log, out,
+                                  no_stop=args["no_stop"]):
                     failed.append(f"{char} stills")
                     continue
+            # FR 8 (amendment 12): the `s` stop comes first — while
+            # `master/s.png` exists and `s.approved` does not hold its
+            # sha256, the run reviews the guided `s` before the other
+            # directions are edited from it
+            if (s_dirs and not args["no_stop"]
+                    and ctx.dir_still(char, "s").is_file()
+                    and not ctx.s_approved(char)):
+                sheet = ctx.s_sheet(char)
+                # the advisory size report covers `s` like every direction
+                ratio = ctx.ref_size(char, "s")
+                note = stages.size_note(ratio)
+                size = "n/a" if ratio is None else f"{ratio:.2f}x"
+                flag = " CHECK" if note.endswith("CHECK") else ""
+                print(f"[{char}/s] ref size {size}{flag}", file=out)
+                panels = [(ctx.master(char) / "still.png", "anchored still"),
+                          (ctx.master(char) / "s.guide.png", "s guide"),
+                          (ctx.dir_still(char, "s"), f"s {note}")]
+                panels = [(p, l) for p, l in panels if p.is_file()]
+                stills.review_sheet([p for p, _ in panels], sheet,
+                                    labels=[l for _, l in panels])
+                print(f"[{char}] s review sheet {sheet}", file=out)
+                stopped.append(char)
+                print(f"[{char}] unapproved: check the s sheet, then run: "
+                      f"sprite-pipeline approve {args['project_file']} {char}",
+                      file=out)
+                continue  # the s stop: no other edits, no animation stages
+            if redo_stills:
                 # FR 8 review stop: the sheet is the review artefact
                 sheet = ctx.refs_sheet(char)
                 missing = ctx.missing_stills(char)

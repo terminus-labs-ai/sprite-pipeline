@@ -613,19 +613,34 @@ class TestEditConsumesTheAnchoredMaster(GoEnv):
     def test_ac15_r5_edit_image_is_the_anchored_master(self):
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
         self.assertEqual(code, 0, out)
+        # amendment 12: the first run edits only `s`, its --image the
+        # anchored still `master/still.png`
         edits = self.edit_calls(self.fake)
-        self.assertEqual(len(edits), 4, "\n".join(" ".join(c) for c in self.fake.calls))
+        self.assertEqual(len(edits), 1, "\n".join(" ".join(c) for c in self.fake.calls))
+        anchored = self.master / "still.png"
+        self.assertEqual(edits[0][edits[0].index("--image") + 1], str(anchored))
+        # the anchored still itself: flat green, profile target, feet on the
+        # floor line, centred
+        self.assertEqual(Image.open(anchored).size, (832, 1024))
+        m = metrics.measure(anchored)
+        self.assertAlmostEqual(m["body_h"], expected_target(704), delta=1.5)
+        self.assertAlmostEqual(m["floor_y"], expected_floor(704), delta=1.5)
+        self.assertAlmostEqual(m["centre_x"], 416, delta=1.5)
+        self.assertEqual(Image.open(anchored).getpixel((0, 0)), CHROMA)
+        # the other directions are edited from the guided master s.png
+        code, out = self.run_cli(["approve", str(self.project), "courier"])
+        self.assertEqual(code, 0, out)
+        fake = FakeRun(after={"sprite_pipeline.comfy edit": self._write_still,
+                              "cutout": self._write_keyed,
+                              "render_drive.py": mannequins.fake_blender})
+        code, out = self.run_cli(["go", str(self.project)], fake=fake)
+        self.assertEqual(code, 0, out)
+        edits = self.edit_calls(fake)
+        self.assertEqual(len(edits), 4, "\n".join(" ".join(c) for c in fake.calls))
         s = self.master / "s.png"
         for e in edits:
             self.assertEqual(e[e.index("--image") + 1], str(s))
             self.assertEqual(Image.open(s).size, (832, 1024))
-        # the master itself is anchored: flat green, profile target, feet on the
-        # floor line, centred
-        m = metrics.measure(s)
-        self.assertAlmostEqual(m["body_h"], expected_target(704), delta=1.5)
-        self.assertAlmostEqual(m["floor_y"], expected_floor(704), delta=1.5)
-        self.assertAlmostEqual(m["centre_x"], 416, delta=1.5)
-        self.assertEqual(Image.open(s).getpixel((0, 0)), CHROMA)
 
     def test_ac15_r5_keyed_file_is_master_s_keyed_png(self):
         """The keyed master is `master/s.keyed.png` (AC15): the still's own
@@ -653,6 +668,11 @@ class TestEditConsumesTheAnchoredMaster(GoEnv):
         edit canvas — no 1280 padding is applied to it. The fake edit here
         copies the edit's own input (the anchored master), so each direction
         still is the edit output at the master's size."""
+        code, out = self.run_cli(["go", str(self.project)], fake=self._copy_fake())
+        self.assertEqual(code, 0, out)
+        # amendment 12: the other direction edits wait for the s approval
+        code, out = self.run_cli(["approve", str(self.project), "courier"])
+        self.assertEqual(code, 0, out)
         code, out = self.run_cli(["go", str(self.project)], fake=self._copy_fake())
         self.assertEqual(code, 0, out)
         for d in ("se", "e", "ne", "n"):

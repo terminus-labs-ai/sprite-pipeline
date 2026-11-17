@@ -186,6 +186,32 @@ class StageCtx:
                             for d in self.project.generate))
         return text == h
 
+    # -- s stop (FR 8, amendment 12): s.approved holds the sha256 of the
+    # guided master `master/s.png`; the other direction edits wait while it
+    # does not match
+    def s_sheet(self, char):
+        return self.project.output_root() / char / "s-sheet.png"
+
+    def s_approved_file(self, char):
+        return self.project.output_root() / char / "s.approved"
+
+    def s_hash(self, char):
+        """sha256 of the guided master `master/s.png`; None while it is missing."""
+        p = self.dir_still(char, "s")
+        return hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
+
+    def s_approved(self, char):
+        """True while `s.approved` holds the sha256 of `master/s.png`."""
+        h = self.s_hash(char)
+        f = self.s_approved_file(char)
+        return h is not None and f.is_file() and f.read_text().strip() == h
+
+    def write_s_approved(self, char):
+        """`approve` writes s.approved: the sha256 of `master/s.png`."""
+        dst = self.s_approved_file(char)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_text(self.s_hash(char) + "\n")
+
     def ref_size(self, char, d):
         """FR 8 (amendments 3 and 10): direction `d`'s size ratio — the body
         height of its raw edit (`master/<d>.edit.png`, or `master/<d>.png`
@@ -393,8 +419,9 @@ def copy_file(src, dst, log):
 
 
 def plan_cutout(still_path, out_dir):
-    """Key the anchored master with `sprite-gen cutout --key measured` (FR 6):
-    `out_dir/<stem>.keyed.png`, so the master `s` keys to `master/s.keyed.png`."""
+    """Key the guided `s` master with `sprite-gen cutout --key measured`
+    (FR 6, amendment 12): `out_dir/<stem>.keyed.png`, so the re-anchored
+    `master/s.png` keys to `master/s.keyed.png`."""
     out_path = Path(out_dir) / (Path(still_path).stem + ".keyed.png")
     return sprite_gen_cmds("cutout", str(still_path), "--out", str(out_path),
                            "--key", "measured")

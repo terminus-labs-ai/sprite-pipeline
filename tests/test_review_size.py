@@ -71,13 +71,26 @@ class SizeFixture(ReviewFixture):
 
     def setUp(self):
         super().setUp()
-        self.ratios = dict(AC16_RATIOS)
+        self.ratios = {"s": 1.0, **AC16_RATIOS}
 
     def _make_still(self, argv):
         # the raw edit `master/<d>.edit.png` at its direction's ratio
         dst = Path(argv[argv.index("--copy-to") + 1])
         d = dst.name.split(".")[0]
         direction_still(dst, self.ratios[d], d=d)
+
+    def build_all(self, fake=None):
+        """The amendment 12 two-stop build: `go` stops at the s sheet,
+        `approve` writes s.approved, the next `go` stops at the refs sheet.
+        Returns the last run's (code, out)."""
+        fake = fake or self.fake
+        code, out = self.run_cli(["go", str(self.project)], fake=fake)
+        self.assert_stopped_with_approve_command(code, out)
+        code, out = self.run_cli(self.approve_cmd())
+        self.assertEqual(code, 0, out)
+        code, out = self.run_cli(["go", str(self.project)], fake=fake)
+        self.assert_stopped_with_approve_command(code, out)
+        return code, out
 
     def size_lines(self, out):
         return [m.groups() for m in map(SIZE_LINE.match, out.splitlines()) if m]
@@ -96,6 +109,12 @@ class TestSizeLogLines(SizeFixture):
     """AC16-r1: one `ref size` line per direction with two-decimal ratios."""
 
     def test_r1_one_ref_size_line_per_direction_two_decimals(self):
+        code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+        self.assertEqual(code, 0, out)
+        # the s stop reports `s`'s ratio only (amendment 12)
+        self.assertEqual(self.size_lines(out), [("s", "1.00x")], out)
+        code, out = self.run_cli(self.approve_cmd())
+        self.assertEqual(code, 0, out)
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
         self.assertEqual(code, 0, out)
         lines = self.size_lines(out)
@@ -134,7 +153,7 @@ class TestSheetLabels(SizeFixture):
     CHECK` (and the master's and ne's ratios likewise)."""
 
     def test_r2_labels_append_the_ratio_and_check(self):
-        code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+        code, out = self.build_all()
         self.assertEqual(code, 0, out)
         sheet = Image.open(self.out_char / "refs-sheet.png").convert("RGB")
         self.assertEqual(sheet.size, (TILE_W * len(GEN_DIRS), 340 + STRIP_H))
@@ -161,9 +180,14 @@ class TestApproveIsWarnOnly(SizeFixture):
         for ratio in (0.97, 1.06, 1.30, 0.70):
             with self.subTest(ratio=ratio):
                 shutil.rmtree(self.base / "out", ignore_errors=True)
-                self.ratios = {d: ratio for d in AC16_RATIOS}
-                code, out = self.run_cli(["go", str(self.project)],
-                                         fake=self._fresh_fake())
+                self.ratios = {"s": 1.0,
+                               **{d: ratio for d in AC16_RATIOS}}
+                fake = self._fresh_fake()
+                code, out = self.run_cli(["go", str(self.project)], fake=fake)
+                self.assert_stopped_with_approve_command(code, out)
+                code, out = self.run_cli(self.approve_cmd())
+                self.assertEqual(code, 0, out)
+                code, out = self.run_cli(["go", str(self.project)], fake=fake)
                 self.assert_stopped_with_approve_command(code, out)
                 flagged = [d for d, s in self.size_lines(out) if s.endswith("CHECK")]
                 self.assertEqual(sorted(flagged),
@@ -187,8 +211,8 @@ class TestChangedStillInvalidates(SizeFixture):
     reporting the new size."""
 
     def test_r4_changed_direction_still_invalidates_the_approval(self):
-        code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
-        self.assert_stopped_with_approve_command(code, out)
+        code, out = self.build_all()
+        self.assertEqual(code, 0, out)
         code, out = self.run_cli(self.approve_cmd())
         self.assertEqual(code, 0, out)
         approved = (self.out_char / "refs.approved").read_text()
@@ -217,7 +241,7 @@ class TestMeasuredFile(SizeFixture):
     edit alone keeps the approval (the hash covers `<d>.png` only)."""
 
     def test_ac16_r2_without_a_raw_edit_the_ratio_is_measured_on_the_still(self):
-        code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+        code, out = self.build_all()
         self.assertIn(("e", "1.06x"), self.size_lines(out), out)
         # no raw edit for e; e.png itself at 0.90 of the e target (the
         # re-anchored e.png measured 1.00, the deleted raw edit 1.06)
@@ -246,8 +270,8 @@ class TestMeasuredFile(SizeFixture):
         self.assertEqual(ctx.ref_size("courier", "s"), 1.10)
 
     def test_ac16_r5_a_changed_raw_edit_alone_keeps_the_approval(self):
-        code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
-        self.assert_stopped_with_approve_command(code, out)
+        code, out = self.build_all()
+        self.assertEqual(code, 0, out)
         code, out = self.run_cli(self.approve_cmd())
         self.assertEqual(code, 0, out)
         approved = (self.out_char / "refs.approved").read_text()

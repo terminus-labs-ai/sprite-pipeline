@@ -433,17 +433,21 @@ class TestSharedStillPlan(unittest.TestCase):
     def tearDown(self):
         subprocess.run = self._old_run
 
-    def test_steps_are_prepare_then_generated_minus_se_in_order(self):
+    def test_steps_are_prepare_then_generated_in_order(self):
         with tempfile.TemporaryDirectory() as td:
             base = fixture(td)
             p = project.load_project(base / "project.yaml")
             steps = cli.still_plan(p, "courier")
             self.assertEqual([s["kind"] for s in steps],
-                             ["prepare", "edit", "edit", "edit", "edit"])
-            # the master is the still's own direction, s (AC15): the edits are
-            # the generated directions minus s
-            self.assertEqual([s["dir"] for s in steps], ["s", "se", "e", "ne", "n"])
+                             ["prepare", "edit", "edit", "edit", "edit", "edit"])
+            # amendment 12: `s` is a guided direction too — the edits are all
+            # generated directions, s first (the prepare step also says "s")
+            self.assertEqual([s["dir"] for s in steps],
+                             ["s", "s", "se", "e", "ne", "n"])
             self.assertEqual(steps[0]["src"], base / "stills" / "courier.png")
+            # the s edit reads the anchored still, the rest the guided master
+            self.assertEqual([s["src"] for s in steps[1:]],
+                             ["still.png", "s.png", "s.png", "s.png", "s.png"])
             turn = project.load_view(p.view)["turn"]
             for s in steps[1:]:
                 self.assertEqual(s["turn"], turn[s["dir"]])
@@ -503,14 +507,13 @@ class TestSharedStillPlan(unittest.TestCase):
         edits = [i for i, l in enumerate(lines) if "] direction edit:" in l]
         self.assertEqual(len(preps), 1)
         self.assertEqual([i for i in edits if i < preps[0]], [])
-        self.assertEqual(len(edits), 4)  # se, e, ne, n — never the master's s
-        self.assertNotIn("[courier/s] direction edit", out)
-        # the direction edits ran in plan order, one subprocess each
+        self.assertEqual(len(edits), 5)  # s, se, e, ne, n (amendment 12)
+        # the direction edits ran in plan order, one subprocess each, s first
         edit_calls = [c for c in calls if "sprite_pipeline.comfy edit" in c]
-        self.assertEqual(len(edit_calls), 4)
+        self.assertEqual(len(edit_calls), 5)
         order = [re.search(r"--prefix courier/dir-(\w+) ", c).group(1) for c in edit_calls]
-        self.assertEqual(order, ["se", "e", "ne", "n"])
-        # and the palette cutout of the prepared SE still happened once
+        self.assertEqual(order, ["s", "se", "e", "ne", "n"])
+        # and the palette cutout of the guided s master happened once
         self.assertEqual(len([c for c in calls if "cutout" in c]), 1)
 
 

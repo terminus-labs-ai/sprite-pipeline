@@ -6,7 +6,8 @@ background. `check` (FR 6) measures it with `metrics` and rejects a figure that
 does not stand, naming the file and the failed rule (`too wide`, `too small` or
 `feet not at the bottom`).
 
-`anchor` then prepares the master against the anchor profile's `s`
+`anchor` then prepares the anchored still `master/still.png` against the
+anchor profile's `s`
 direction (FR 14 `dirs`): the still is scaled uniformly so its measured body
 height equals the target on the 832x1024 edit canvas — `dirs.s.body_h * 832 /
 frame_size` px (391.2 for the packaged ual-female.glb profile at 704) — with
@@ -18,7 +19,7 @@ workflow's reference mapping: it centre-crops the 832x1024 still to 832x832
 (rows 96-927, CROP_Y = (CANVAS_H - CANVAS_W) // 2) and scales it by
 `frame_size / 832`. Anchoring reproduces the drive-video geometry after that
 centre crop and downscale, so Wan Animate receives a ref framed like the
-mannequin it follows. The master replaces the old fill-fit plus 1280
+mannequin it follows. The anchored still replaces the old fill-fit plus 1280
 reference canvas: there is no 1280 canvas anymore.
 
 `guide` (FR 7) places a mannequin render facing a direction on the edit
@@ -205,8 +206,8 @@ def _place(src, dst, frame_size, profile, d, diff, fill_holes=False):
 
 
 def anchor(src, dst, frame_size, profile, d):
-    """FR 6: prepare the anchored master of a standing-figure still against
-    the profile's direction `d` (`s` for the master).
+    """FR 6: prepare the anchored still (`master/still.png`) of a
+    standing-figure still against the profile's direction `d`.
 
     The still is scaled uniformly by `body_target(frame_size, profile, d) /
     measured body height` and its figure pasted on an 832x1024 canvas filled
@@ -269,8 +270,9 @@ def size_master(src, dst_dir, size=STILL_SIZE):
 
 
 def dir_prompt(turn, d, pronoun):
-    """FR 7: the direction edit's prompt — the view's turn prompt `turn[d]`
-    for direction `d` worded in the character's pronoun, then GUIDE_LINE in
+    """FR 7 (amendment 12, dec-745): the direction edit's prompt — the
+    mannequin-camera framing, then the view's turn prompt `turn[d]` for
+    direction `d` worded in the character's pronoun, then GUIDE_LINE in
     that pronoun. Raises ValueError for a pronoun or direction the preset
     does not know."""
     forms = pronoun_forms(pronoun)
@@ -279,8 +281,9 @@ def dir_prompt(turn, d, pronoun):
     obj = forms["obj"]
     turn_text = turn[d].format(**forms)
     return ("The exact same character with the exact same outfit, colors, proportions "
-            f"and art style, seen from the exact same high isometric camera angle "
-            f"looking down at {obj}, standing in the same relaxed pose, but now "
+            f"and art style, seen from the same high isometric camera angle as the "
+            f"mannequin in image 2, looking down at {obj} at about 45 degrees, "
+            f"but now "
             + turn_text + "." + TAIL + " " + GUIDE_LINE.format(**forms))
 
 

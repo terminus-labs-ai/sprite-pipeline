@@ -7,10 +7,12 @@ subprocess.run fake for the comfy calls themselves: the `go` row lets the real
 `comfy edit` subprocess execute; the other tools (sprite-gen cutout, blender,
 ffmpeg) are faked at the runner, as in test_review.py.
 
-AC4-r5: `go` on an unapproved character makes one real edit per generated
-direction other than `se`, each posting the view's turn prompt in the
-character's pronoun, writes the direction stills and refs-sheet.png, makes
-no animate post and exits 0 printing the approve command.
+AC4-r5 (amendment 12): `go` on an unapproved character edits `s` from the
+anchored still and stops at s-sheet.png; after `approve`, the next `go`
+makes one real edit per other generated direction, each posting the view's
+turn prompt in the character's pronoun, writes the direction stills and
+refs-sheet.png, makes no animate post and exits 0 printing the approve
+command.
 
 AC6-r6: `comfy edit` with the shipped `edit.json` posts a graph whose
 `sp:ref_image` input is the name the upload returned, `sp:seed` holds the
@@ -58,12 +60,14 @@ POS = {"he": "his", "she": "her", "they": "their"}
 
 
 def expected_prompt(turn, d, pronoun):
-    """The FR 7 direction edit prompt: the fixed framing plus the view's turn
-    text with the pronoun substituted, then the guide line (amendment 10)."""
+    """The FR 7 direction edit prompt: the amendment 12 mannequin-camera
+    framing plus the view's turn text with the pronoun substituted, then the
+    guide line (amendment 10)."""
     obj, pos = OBJ[pronoun], POS[pronoun]
     return ("The exact same character with the exact same outfit, colors, proportions "
-            f"and art style, seen from the exact same high isometric camera angle "
-            f"looking down at {obj}, standing in the same relaxed pose, but now "
+            f"and art style, seen from the same high isometric camera angle as the "
+            f"mannequin in image 2, looking down at {obj} at about 45 degrees, "
+            f"but now "
             + turn[d].format(obj=obj, pos=pos) + "." + TAIL
             + f" Image 2 is a plain grey mannequin used only as a guide: draw {obj} "
             f"in exactly the mannequin's pose, facing direction, size and position "
@@ -297,14 +301,21 @@ class TestGoRealEditAtHTTPSeam(Env):
         self.server.render = standing_png()
 
     def test_r5_exactly_four_edits_and_no_animate(self):
+        # amendment 12: the first `go` edits only `s` and stops at the s
+        # sheet; the next `go` after `approve` makes the four direction edits
         project = make_project(self.tmp)
         fake = FakeRun(self._real_run, after=self._cutout())
         code, out = self.run_cli(["go", str(project)], fake)
         self.assertEqual(code, 0, out)
-        # exactly 4 edit posts at the real HTTP seam, no animate post
-        self.assertEqual(len([c for c in fake.comfy_calls() if c[3] == "edit"]), 4, out)
+        self.assertEqual(len([c for c in fake.comfy_calls() if c[3] == "edit"]), 1, out)
+        code, out = self.run_cli(["approve", str(project), "courier"], fake)
+        self.assertEqual(code, 0, out)
+        code, out = self.run_cli(["go", str(project)], fake)
+        self.assertEqual(code, 0, out)
+        # exactly 4 more edit posts at the real HTTP seam, no animate post
+        self.assertEqual(len([c for c in fake.comfy_calls() if c[3] == "edit"]), 5, out)
         self.assertEqual([c for c in fake.comfy_calls() if c[3] == "animate"], [], out)
-        self.assertEqual(len(self.server.prompts), 4)
+        self.assertEqual(len(self.server.prompts), 5)
 
     def test_r5_exit_zero_prints_approve_command(self):
         project = make_project(self.tmp)
@@ -315,13 +326,18 @@ class TestGoRealEditAtHTTPSeam(Env):
         master = base / "out" / "courier" / "master"
         fake = FakeRun(self._real_run, after=self._cutout())
         code, out = self.run_cli(["go", str(project)], fake)
+        self.assertEqual(code, 0, out)  # the s edit, then the s stop
+        code, out = self.run_cli(["approve", str(project), "courier"], fake)
+        self.assertEqual(code, 0, out)
+        code, out = self.run_cli(["go", str(project)], fake)
         self.assertEqual(code, 0, out)
 
-        # exactly 4 edits (s, e, ne, n), no animate, at the real HTTP seam
+        # the s edit plus exactly 4 more (se, e, ne, n), no animate, at the
+        # real HTTP seam
         edits = [c for c in fake.comfy_calls() if c[3] == "edit"]
-        self.assertEqual(len(edits), 4, out)
+        self.assertEqual(len(edits), 5, out)
         self.assertEqual([c for c in fake.comfy_calls() if c[3] == "animate"], [], out)
-        self.assertEqual(len(self.server.prompts), 4)
+        self.assertEqual(len(self.server.prompts), 5)
 
         # each post holds the view's turn prompt for that direction in her
         # pronoun; the image is the fitted SE still; the prefix is char/dir-<d>

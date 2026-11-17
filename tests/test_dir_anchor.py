@@ -1,11 +1,13 @@
-"""Tests for the mannequin-guided direction stills (spec AC18, AC19; FR 7,
-FR 9, amendment 10).
+"""Tests for the mannequin-guided direction stills (spec AC15, AC18, AC19;
+FR 6, FR 7, FR 9, amendments 10 and 12).
 
-Per guided direction `go` renders the anchor GLB's A_TPose facing it
-(Blender faked at subprocess.run by `mannequins.fake_blender`, cached in the
-configured motion_cache), places it as `master/<d>.guide.png`, runs the edit
-with `--image master/s.png --pose-image master/<d>.guide.png` and the guide
-line appended to the prompt (ComfyUI faked at subprocess.run), keeps the raw
+Per guided direction — `s` first (amendment 12) — `go` renders the anchor
+GLB's A_TPose facing it (Blender faked at subprocess.run by
+`mannequins.fake_blender`, cached in the configured motion_cache), places it
+as `master/<d>.guide.png`, runs the edit with `--image` the anchored still
+`master/still.png` for `s` and the guided master `master/s.png` for every
+other direction, `--pose-image master/<d>.guide.png` and the guide line
+appended to the prompt (ComfyUI faked at subprocess.run), keeps the raw
 output as `master/<d>.edit.png` and re-anchors it to `master/<d>.png`
 without the standing-figure rule. The guide's silhouette includes every
 region it fully encloses (amendment 11): no chroma green is left inside the
@@ -13,8 +15,8 @@ mannequin.
 
 The expected targets are stated literally from the stub profile (the female
 values in tests/mannequins.py) on the 832x1024 canvas at frame size 704:
-body / floor se 433.7 / 724.7, e 471.5 / 725.9, ne 418.4 / 727.1, n 361.6 /
-715.3; centre x 416; chroma green (31, 203, 25).
+body / floor s 391.2 / 715.3, se 433.7 / 724.7, e 471.5 / 725.9, ne 418.4 /
+727.1, n 361.6 / 715.3; centre x 416; chroma green (31, 203, 25).
 """
 import io
 import json
@@ -33,9 +35,13 @@ from sprite_pipeline import metrics, stills
 
 ROOT = Path(__file__).resolve().parent.parent
 GREEN = (31, 203, 25)
-# body / floor on the 832x1024 canvas at 704, per direction (case table)
-TARGET = {"se": (433.7, 724.7), "e": (471.5, 725.9), "ne": (418.4, 727.1),
+# body / floor on the 832x1024 canvas at 704, per direction (case table):
+# dirs.<d>.body_h x 832 / 704 and dirs.<d>.floor_y x 832 / 704 + 96 over the
+# stub profile (mannequins.DIRS)
+TARGET = {"s": (331 * 832 / 704, 524 * 832 / 704 + 96),
+          "se": (433.7, 724.7), "e": (471.5, 725.9), "ne": (418.4, 727.1),
           "n": (361.6, 715.3)}
+ALL_DIRS = ["s", "se", "e", "ne", "n"]
 CENTRE_X = 416
 EDIT_BG = (10, 200, 10)
 GUIDE_LINE = {
@@ -89,8 +95,21 @@ class GuidedFixture(ReviewFixture):
 
     def setUp(self):
         super().setUp()
-        self.raw = {d: raw_edit(d) for d in EDIT_DIRS}
+        self.raw = {d: raw_edit(d) for d in ALL_DIRS}
         self.written = {}
+
+    def build_all(self, fake=None):
+        """The amendment 12 two-stop build: `go` edits `s` and stops;
+        `approve` writes s.approved; the next `go` edits the rest and stops
+        at the full review stop. Returns the last run's (code, out)."""
+        fake = fake or self.fake
+        code, out = self.run_cli(["go", str(self.project)], fake=fake)
+        self.assert_stopped_with_approve_command(code, out)
+        code, out = self.run_cli(self.approve_cmd())
+        self.assertEqual(code, 0, out)
+        code, out = self.run_cli(["go", str(self.project)], fake=fake)
+        self.assert_stopped_with_approve_command(code, out)
+        return code, out
 
     def _make_still(self, argv):
         dst = Path(argv[argv.index("--copy-to") + 1])
@@ -120,16 +139,30 @@ class GuidedFixture(ReviewFixture):
 # ------------------------------------------------------------ AC18-r1: edit argv
 
 class TestGuidedEditArgv(GuidedFixture):
-    """AC18-r1: each direction edit runs with `--image master/s.png` and
-    `--pose-image master/<d>.guide.png`; there is no edit for s."""
+    """AC18-r1/r11/r12 (amendment 12): `go --no-stop` edits `s` first with
+    `--image master/still.png --pose-image master/s.guide.png`, then each
+    other generated direction with `--image master/s.png --pose-image
+    master/<d>.guide.png`."""
 
-    def test_ac18_r1_each_edit_gets_the_master_and_its_guide(self):
-        code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
-        self.assert_stopped_with_approve_command(code, out)
+    def test_ac18_r1_each_edit_gets_its_reference_and_its_guide(self):
+        # --stage keeps the assertion on the still work (the faked pipeline
+        # cannot satisfy export)
+        code, out = self.run_cli(["go", str(self.project), "--no-stop",
+                                  "--stage", "pixel"], fake=self.fake)
+        self.assertEqual(code, 0, out)
         edits = self.fake.edit_calls()
         by_dir = {Path(e[e.index("--copy-to") + 1]).name: e for e in edits}
-        self.assertEqual(sorted(by_dir), sorted(f"{d}.edit.png" for d in EDIT_DIRS))
-        self.assertEqual(len(edits), 4)
+        self.assertEqual(sorted(by_dir), sorted(f"{d}.edit.png" for d in ALL_DIRS))
+        self.assertEqual(len(edits), 5)
+        # s first, edited from the anchored still (AC18-r11)
+        first = edits[0]
+        self.assertEqual(first[first.index("--copy-to") + 1],
+                         str(self.master / "s.edit.png"))
+        self.assertEqual(first[first.index("--image") + 1],
+                         str(self.master / "still.png"))
+        self.assertEqual(first[first.index("--pose-image") + 1],
+                         str(self.master / "s.guide.png"))
+        # every other direction edited from the guided master (AC18-r12)
         for d in EDIT_DIRS:
             e = by_dir[f"{d}.edit.png"]
             self.assertEqual(e[e.index("--image") + 1], str(self.master / "s.png"))
@@ -137,11 +170,11 @@ class TestGuidedEditArgv(GuidedFixture):
                              str(self.master / f"{d}.guide.png"))
             self.assertEqual(e[e.index("--copy-to") + 1],
                              str(self.master / f"{d}.edit.png"))
+        for d in ALL_DIRS:
             self.assertTrue((self.master / f"{d}.guide.png").is_file(), d)
-        self.assertFalse((self.master / "s.guide.png").exists())
-        self.assertFalse((self.master / "s.edit.png").exists())
-        # one A_TPose render per guided direction, none for s
-        self.assertEqual(sorted(self.renders(self.fake)), ["135", "180", "45", "90"])
+        # one A_TPose render per direction, s included (facing 0)
+        self.assertEqual(sorted(self.renders(self.fake)),
+                         ["0", "135", "180", "45", "90"])
 
 
 # --------------------------------------------------- AC18-r2 / r3: guide placement
@@ -179,9 +212,8 @@ class TestGuidePlacement(GuidedFixture):
             self.assertTrue(grey.any())
 
     def test_ac18_r2_go_writes_each_guide_at_its_direction_target(self):
-        code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
-        self.assertEqual(code, 0, out)
-        for d in EDIT_DIRS:
+        self.build_all()
+        for d in ALL_DIRS:
             self.assert_on_target(self.master / f"{d}.guide.png", d)
 
     def test_ac18_r3_a_figure_6_levels_off_pastes_whole(self):
@@ -374,9 +406,11 @@ class TestPackagedEditWorkflow(unittest.TestCase):
 # ------------------------------------------------------------ AC18-r7: --dry-run
 
 class TestDryRunPlan(GuidedFixture):
-    """AC18-r7: `--dry-run` on an unapproved character prints, per guided
-    direction, a guide, a direction edit and a re-anchor line, runs no
-    subprocess (no Blender) and writes nothing."""
+    """AC18-r7/r14 (amendment 12): `--dry-run` on an unapproved character
+    prints, per direction — `s` first, its edit naming `still.png` — a
+    guide, a direction edit and a re-anchor line (the `s` block ends with
+    the palette cutout), runs no subprocess (no Blender) and writes
+    nothing."""
 
     def test_ac18_r7_dry_run_prints_guide_edit_reanchor_per_direction(self):
         fake = FakeRun()
@@ -384,6 +418,15 @@ class TestDryRunPlan(GuidedFixture):
         self.assertEqual(code, 0, out)
         self.assertEqual(fake.calls, [])
         lines = out.splitlines()
+        mine = [l for l in lines if l.startswith("[courier/s] ")]
+        kinds = [l.split("] ", 1)[1].split(" ")[0] for l in mine]
+        self.assertEqual(kinds, ["guide", "direction", "re-anchor", "palette"], mine)
+        self.assertIn(str(self.master / "s.guide.png"), mine[0])
+        self.assertIn("direction edit (edit)", mine[1])
+        self.assertIn("still.png", mine[1])  # the s edit's input, not s.png
+        self.assertIn(str(self.master / "s.edit.png"), mine[2])
+        self.assertIn(str(self.master / "s.png"), mine[2])
+        self.assertIn(str(self.master / "s.keyed.png"), mine[3])
         for d in EDIT_DIRS:
             mine = [l for l in lines if l.startswith(f"[courier/{d}] ")]
             kinds = [l.split("] ", 1)[1].split(" ")[0] for l in mine]
@@ -392,7 +435,11 @@ class TestDryRunPlan(GuidedFixture):
             self.assertIn("direction edit (edit)", mine[1])
             self.assertIn(str(self.master / f"{d}.edit.png"), mine[2])
             self.assertIn(str(self.master / f"{d}.png"), mine[2])
-        self.assertFalse([l for l in lines if l.startswith("[courier/s] ")])
+        # the s block precedes every other direction's lines
+        s_first = lines.index(next(l for l in lines if l.startswith("[courier/s] ")))
+        others_first = min(lines.index(l) for d in EDIT_DIRS for l in lines
+                           if l.startswith(f"[courier/{d}] "))
+        self.assertLess(s_first, others_first)
         self.assertFalse(self.out_char.exists())
         self.assertFalse((self.home / "motion-cache").exists())
 
@@ -407,8 +454,14 @@ class TestGuideRenderCache(GuidedFixture):
     def test_ac18_r8_a_cached_render_skips_blender(self):
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
         self.assertEqual(code, 0, out)
-        self.assertEqual(len(self.renders(self.fake)), 4)
-        first = (self.master / "e.guide.png").read_bytes()
+        self.assertEqual(self.renders(self.fake), ["0"])  # the s render only
+        code, out = self.run_cli(self.approve_cmd())
+        self.assertEqual(code, 0, out)
+        code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(sorted(self.renders(self.fake)),
+                         ["0", "135", "180", "45", "90"])
+        first = (self.master / "s.guide.png").read_bytes()
         import shutil
         shutil.rmtree(self.out_char)
         fake = self._fresh_fake()
@@ -416,8 +469,8 @@ class TestGuideRenderCache(GuidedFixture):
         self.assert_stopped_with_approve_command(code, out)
         self.assertEqual(self.renders(fake), [])
         self.assertEqual([c for c in fake.calls if "render_drive.py" in " ".join(c)], [])
-        self.assertEqual(len(fake.edit_calls()), 4)
-        self.assertEqual((self.master / "e.guide.png").read_bytes(), first)
+        self.assertEqual(len(fake.edit_calls()), 1)  # the s stop edits only s
+        self.assertEqual((self.master / "s.guide.png").read_bytes(), first)
 
 
 # ------------------------------------------------------------ AC19-r1: re-anchor
@@ -430,9 +483,8 @@ class TestReanchor(GuidedFixture):
     rejected."""
 
     def test_ac19_r1_raw_edit_kept_and_still_reanchored(self):
-        code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
-        self.assert_stopped_with_approve_command(code, out)
-        for d in EDIT_DIRS:
+        self.build_all()
+        for d in ALL_DIRS:
             raw = self.master / f"{d}.edit.png"
             self.assertEqual(raw.read_bytes(), self.written[d], d)
             # the input really is off target
@@ -442,7 +494,7 @@ class TestReanchor(GuidedFixture):
             self.assert_on_target(self.master / f"{d}.png", d)
 
     def test_ac19_r2_a_raw_edit_wider_than_tall_is_reanchored(self):
-        self.raw = {d: t_pose(d) for d in EDIT_DIRS}
+        self.raw = {d: t_pose(d) for d in EDIT_DIRS} | {"s": self.raw["s"]}
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "ne.edit.png"
             self.raw["ne"].save(src)
@@ -452,10 +504,8 @@ class TestReanchor(GuidedFixture):
             dst = Path(tmp) / "ne.png"
             stills.reanchor(src, dst, 704, mannequins.profile(), "ne")
             self.assert_on_target(dst, "ne")
-        code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
-        self.assert_stopped_with_approve_command(code, out)
-        self.assertNotIn("too wide", out)
-        for d in EDIT_DIRS:
+        self.build_all()
+        for d in ALL_DIRS:
             self.assert_on_target(self.master / f"{d}.png", d)
 
 
@@ -466,18 +516,28 @@ class TestDirectionFailure(GuidedFixture):
     `master/<d>.edit.png`, and the other directions still run. A failed
     guide render is that direction's failure the same way."""
 
-    def test_ac19_r3_flat_raw_edit_fails_its_direction_only(self):
-        self.raw["e"] = Image.new("RGB", (832, 1024), EDIT_BG)
+    def _approve_s(self):
+        """Pass the s stop: `go` edits s, `approve` writes s.approved."""
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+        self.assert_stopped_with_approve_command(code, out)
+        code, out = self.run_cli(self.approve_cmd())
+        self.assertEqual(code, 0, out)
+
+    def test_ac19_r3_flat_raw_edit_fails_its_direction_only(self):
+        self._approve_s()
+        self.raw["e"] = Image.new("RGB", (832, 1024), EDIT_BG)
+        fake = self._fresh_fake()
+        code, out = self.run_cli(["go", str(self.project)], fake=fake)
         self.assertEqual(code, 1, out)
         self.assertIn(str(self.master / "e.edit.png"), out)
         self.assertIn("FAILED", out)
         self.assertFalse((self.master / "e.png").exists())
-        self.assertEqual(len(self.fake.edit_calls()), 4)
+        self.assertEqual(len(fake.edit_calls()), 4)
         for d in ("se", "ne", "n"):  # before and after e, in generate order
             self.assert_on_target(self.master / f"{d}.png", d)
 
     def test_ac19_r3_failed_guide_render_fails_its_direction_only(self):
+        self._approve_s()
         def no_ne(argv):
             if argv[argv.index("--") + 4] != "135":
                 self._produce_frames(argv)
@@ -504,6 +564,12 @@ class TestRerun(GuidedFixture):
     but `master/e.png` missing, `go` re-runs e's edit and re-anchor."""
 
     def build(self):
+        # the full two-stop build (amendment 12): go -> approve -> go ->
+        # approve, ending with the whole set approved
+        code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+        self.assert_stopped_with_approve_command(code, out)
+        code, out = self.run_cli(self.approve_cmd())
+        self.assertEqual(code, 0, out)
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
         self.assert_stopped_with_approve_command(code, out)
         code, out = self.run_cli(self.approve_cmd())
@@ -539,6 +605,74 @@ class TestRerun(GuidedFixture):
         self.assertEqual([e[e.index("--copy-to") + 1] for e in edits],
                          [str(self.master / "e.edit.png")])
         self.assert_on_target(self.master / "e.png", "e")
+
+
+# ------------------------------------- AC15-r1 / r2 (amendment 12): anchored still
+
+class TestAnchoredStillIsTheSEditInput(GuidedFixture):
+    """AC15-r1: the `s` edit's `--image` is `master/still.png`, the anchored
+    still measuring body 391, floor 715, centre x 416 at frame size 704.
+    AC15-r2: the cutout reads the re-anchored `master/s.png` (not the
+    anchored still) and writes `master/s.keyed.png`."""
+
+    def test_ac15_r1_s_edit_reads_the_anchored_still(self):
+        code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+        self.assert_stopped_with_approve_command(code, out)
+        edits = self.fake.edit_calls()
+        self.assertEqual(len(edits), 1)
+        anchored = self.master / "still.png"
+        self.assertEqual(edits[0][edits[0].index("--image") + 1], str(anchored))
+        self.assert_on_target(anchored, "s")  # 391.2 / 715.3, centre x 416
+
+    def test_ac15_r2_cutout_reads_the_reanchored_s(self):
+        read = []
+
+        def spy_cutout(argv):
+            read.append(Path(argv[argv.index("cutout") + 1]).read_bytes())
+            self._produce_still(argv)
+        fake = FakeRun(after={"sprite_pipeline.comfy edit": self._make_still,
+                              "cutout": spy_cutout,
+                              "render_drive.py": self._produce_frames,
+                              "ffmpeg": self._produce_drive})
+        code, out = self.run_cli(["go", str(self.project)], fake=fake)
+        self.assert_stopped_with_approve_command(code, out)
+        cutouts = [c for c in fake.calls if Path(c[0]).name == "sprite-gen"]
+        self.assertEqual(len(cutouts), 1)
+        argv = cutouts[0]
+        self.assertEqual(argv[argv.index("cutout") + 1],
+                         str(self.master / "s.png"))
+        self.assertEqual(argv[argv.index("--out") + 1],
+                         str(self.master / "s.keyed.png"))
+        # the bytes the cutout read are the re-anchored s, which only exists
+        # after the s re-anchor — never the anchored still's
+        self.assertEqual(len(read), 1)
+        self.assertEqual(read[0], (self.master / "s.png").read_bytes())
+        self.assertNotEqual(read[0], (self.master / "still.png").read_bytes())
+
+
+# ------------------------------------------ AC18-r13 (amendment 12): the framing
+
+class TestMannequinCameraFraming(unittest.TestCase):
+    """AC18-r13: dir_prompt for every direction opens with the amendment 12
+    mannequin-camera sentence, holds no `relaxed pose`, and ends with the
+    guide line in the pronoun."""
+
+    def test_ac18_r13_every_direction_uses_the_mannequin_camera_framing(self):
+        turn = {d: f"turn {d} {{{'obj'}}}" for d in
+                ("s", "se", "e", "ne", "n")}
+        for d in turn:
+            with self.subTest(d=d):
+                p = stills.dir_prompt(turn, d, "she")
+                self.assertTrue(p.startswith(
+                    "The exact same character with the exact same outfit, colors, "
+                    "proportions and art style, seen from the same high isometric "
+                    "camera angle as the mannequin in image 2, looking down at her "
+                    "at about 45 degrees, but now "), p)
+                self.assertNotIn("relaxed pose", p)
+                self.assertTrue(p.endswith(GUIDE_LINE["she"]), p)
+        he = stills.dir_prompt(turn, "n", "he")
+        self.assertIn("looking down at him at about 45 degrees", he)
+        self.assertTrue(he.endswith(GUIDE_LINE["he"]), he)
 
 
 if __name__ == "__main__":

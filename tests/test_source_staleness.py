@@ -125,6 +125,12 @@ class TestStaleSourceRebuild(StalenessFixture):
     command); source.sha256 is rewritten (FR 10 amendment 2)."""
 
     def build_and_approve(self):
+        # amendment 12: the full build is go -> approve (s stop) -> go ->
+        # approve (refs stop)
+        code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+        self.assert_stopped_with_approve_command(code, out)
+        code, out = self.run_cli(self.approve_cmd())
+        self.assertEqual(code, 0, out)
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
         self.assert_stopped_with_approve_command(code, out)
         code, out = self.run_cli(self.approve_cmd())
@@ -140,15 +146,23 @@ class TestStaleSourceRebuild(StalenessFixture):
         # the whole character output directory was deleted then rebuilt
         self.assertIn(f"[courier] stale source still: {self.still_path()}", out)
         self.assertNotIn(fingerprint, out)
-        # fresh stills: the source was re-prepared and every direction edited
+        # the rebuild stops at the s sheet first (amendment 12): only the s
+        # work ran, s.png sits on the edit canvas
         self.assert_fingerprint(self.still_path().read_bytes())
         self.assertEqual(Image.open(self.master / "s.png").size, (832, 1024))
-        for d in GEN_DIRS:
-            self.assertTrue((self.master / f"{d}.png").is_file(), d)
-        self.assertTrue((self.out_char / "refs-sheet.png").is_file())
+        self.assertTrue((self.out_char / "s-sheet.png").is_file())
         # the old approval is gone with the directory: the run stops again
         self.assertFalse((self.out_char / "refs.approved").exists())
         self.assertFalse(self.ctx().is_approved("courier"))
+        self.assert_stopped_with_approve_command(code, out)
+        # approved, the next run edits the other directions from the new s
+        # and stops at the refs sheet
+        code, out = self.run_cli(self.approve_cmd())
+        self.assertEqual(code, 0, out)
+        code, out = self.run_cli(["go", str(self.project)], fake=fake)
+        for d in GEN_DIRS:
+            self.assertTrue((self.master / f"{d}.png").is_file(), d)
+        self.assertTrue((self.out_char / "refs-sheet.png").is_file())
         self.assert_stopped_with_approve_command(code, out)
 
     def test_r3_repointed_still_path_is_the_same_trigger(self):
@@ -163,7 +177,7 @@ class TestStaleSourceRebuild(StalenessFixture):
         code, out = self.run_cli(["go", str(self.project)], fake=fake)
         self.assertIn(f"[courier] stale source still: {self.base}/stills/courier2.png", out)
         self.assert_fingerprint((self.base / "stills" / "courier2.png").read_bytes())
-        self.assertTrue((self.out_char / "refs-sheet.png").is_file())
+        self.assertTrue((self.out_char / "s-sheet.png").is_file())
         self.assertFalse((self.out_char / "refs.approved").exists())
         self.assert_stopped_with_approve_command(code, out)
 
@@ -180,6 +194,10 @@ class TestDryRunStale(StalenessFixture):
     but deletes nothing (FR 10 dry-run clause)."""
 
     def test_r2_dry_run_prints_and_deletes_nothing(self):
+        code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+        self.assert_stopped_with_approve_command(code, out)
+        code, out = self.run_cli(self.approve_cmd())
+        self.assertEqual(code, 0, out)
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
         self.assert_stopped_with_approve_command(code, out)
         code, out = self.run_cli(self.approve_cmd())
@@ -204,8 +222,10 @@ class TestMatchingBytes(StalenessFixture):
     still work (FR 10 amendment 2)."""
 
     def test_r4_matching_bytes_change_nothing(self):
-        # a run that stops at the review: no stages execute, so the tree is
-        # stable and comparable
+        # the two-stop build: go -> approve (s) -> go -> approve (refs)
+        self.run_cli(["go", str(self.project)], fake=self.fake)
+        code, out = self.run_cli(self.approve_cmd())
+        self.assertEqual(code, 0, out)
         self.run_cli(["go", str(self.project)], fake=self.fake)
         code, out = self.run_cli(self.approve_cmd())
         self.assertEqual(code, 0, out)
@@ -307,8 +327,10 @@ class TestTwoCharacterIsolation(StalenessFixture):
                 im.save(master / f"{d}.png")
             (master / "s.keyed.png").write_bytes(TINY_PNG)
             (self.base / "out" / ch / "refs-sheet.png").write_bytes(TINY_PNG)
-            code, out = self.run_cli(["approve", str(self.project), ch])
-            self.assertEqual(code, 0, out)
+            # amendment 12: two approve calls — s.approved, then refs.approved
+            for _ in range(2):
+                code, out = self.run_cli(["approve", str(self.project), ch])
+                self.assertEqual(code, 0, out)
 
     def test_r6_only_the_stale_character_is_rebuilt(self):
         self.build_both()

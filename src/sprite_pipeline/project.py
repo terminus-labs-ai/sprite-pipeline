@@ -118,9 +118,11 @@ class Project:
 
     @property
     def still_dir(self):
-        """FR 6: the still's own direction is the master (AC15): the source
-        still is anchored to `master/s.png`, keyed to `master/s.keyed.png`
-        and is the edit input of every other generated direction."""
+        """FR 6 (amendment 12): the still's own direction is `s`, the master
+        the other directions are edited from: the source still is anchored
+        to `master/still.png`, guided-edited and re-anchored to
+        `master/s.png`, keyed to `master/s.keyed.png`, and `master/s.png` is
+        the edit input of every other generated direction."""
         return "s"
 
     def output_root(self):

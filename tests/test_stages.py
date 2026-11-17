@@ -145,13 +145,16 @@ class ProjectFixture:
 
     def approve(self, character="courier", dirs=GEN_DIRS):
         """Approved via `approve`: refs.approved holds the hash of the stills
-        just written (the hash rule is also tested in test_review.py)."""
+        just written (the hash rule is also tested in test_review.py).
+        Amendment 12: `approve` serves the `s` stop first, so it takes two
+        calls — s.approved, then refs.approved."""
         master = self.base / "out" / character / "master"
         master.mkdir(parents=True, exist_ok=True)
         for d in dirs:
             (master / f"{d}.png").write_bytes(TINY_PNG)
-        code = cli.main(["approve", str(self.project), character])
-        assert code == 0, f"approve exited {code}"
+        for _ in range(2):
+            code = cli.main(["approve", str(self.project), character])
+            assert code == 0, f"approve exited {code}"
 
 
 # ---------------------------------------------------------------- AC1-r1: dry run
@@ -173,12 +176,12 @@ class TestDryRunNeedsNothing(Env):
         self.assertIn("dry run complete", out)
         self.assertIn("summary", out)
 
-    def test_four_direction_edit_lines(self):
+    def test_five_direction_edit_lines(self):
+        # amendment 12: `s` is a guided direction too — five edit lines
         code, out = self.run_cli(["go", str(self.f.project), "--dry-run"])
-        for d in ("se", "e", "ne", "n"):
+        for d in ("s", "se", "e", "ne", "n"):
             self.assertIn(f"[courier/{d}] direction edit", out)
-        self.assertNotIn("[courier/s] direction edit", out)  # the still's own dir
-        self.assertEqual(len(re.findall(r"courier/\w+\] direction edit", out)), 4)
+        self.assertEqual(len(re.findall(r"courier/\w+\] direction edit", out)), 5)
 
     def test_no_animation_lines_for_an_unapproved_character(self):
         code, out = self.run_cli(["go", str(self.f.project), "--dry-run"])
