@@ -309,6 +309,7 @@ class TestExampleProject(unittest.TestCase):
             f = base / rel
             f.parent.mkdir(parents=True, exist_ok=True)
             f.write_bytes(ASSET)
+        mannequins.register(ASSET, glb_name="ual.glb")
         return project.load_project(base / "project.yaml"), base
 
     def test_matches_the_motion_library_at_base(self):

@@ -413,8 +413,10 @@ class TestProfileGate(GoEnv):
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(_stub_glb_bytes())
 
-    def test_r4_dry_run_needs_no_profiled_glb(self):
-        """AC1-r1 keeps working: `--dry-run` plans from the project file."""
+    def test_r4_dry_run_with_a_profiled_glb_plans(self):
+        """AC1-r1 keeps working: with the GLB's profile registered (the gate
+        runs at load), `--dry-run` plans from the project file."""
+        mannequins.register(self.glb_bytes, glb_name="ual.glb")
         code, out = self.run_cli(["go", str(self.project), "--dry-run"])
         self.assertEqual(code, 0, out)
         self.assertIn("still preparation", out)
