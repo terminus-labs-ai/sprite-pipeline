@@ -60,7 +60,7 @@ Top level:
 - `pose_strength` — pose strength for the animate stage (default `1.0`).
 - `output` — output directory, relative to the project file (default `out`).
 - `rig.neck` — the rig's neck bone name (default `DEF-neck`, the Quaternius mannequin).
-- `rig.head` — the rig's head bone name (default `DEF-head`).
+- `rig.head` — the rig's head bone name (default `DEF-head`). A drive that lifts the head passes both names to `render_drive.py` as `--neck NAME --head NAME` after the head pitch (without them it uses `DEF-neck` and `DEF-head`); a named bone with no rotation keys on the action fails the drive with an error naming the bone. Drives cached by earlier versions for a rig with other names were rendered without the head lift; delete that project's drives (`<character>-<animation>-<dir>-*`) from `motion_cache` to render them again.
 - `workflows.edit` — path to the FLUX.2-klein edit workflow JSON (relative to the project file; default: the packaged `src/sprite_pipeline/workflows/edit.json`).
 - `workflows.animate` — path to the Wan Animate 2 animate workflow JSON (relative to the project file; default: the packaged `src/sprite_pipeline/workflows/animate.json`).
 - `characters` — list of characters (below).

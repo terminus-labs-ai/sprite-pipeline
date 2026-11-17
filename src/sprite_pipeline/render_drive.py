@@ -1,7 +1,16 @@
-"""Render a Quaternius UAL action on its mannequin from an isometric camera. Args after --: glb action out_dir facing_deg elev_deg repeats pre post [head_pitch_deg]. head_pitch > 0 lifts the chin (split between neck and head)."""
+"""Render a Quaternius UAL action on its mannequin from an isometric camera. Args after --: glb action out_dir facing_deg elev_deg repeats pre post [head_pitch_deg] [--neck NAME] [--head NAME]. head_pitch > 0 lifts the chin (split between the neck and head bones, default DEF-neck and DEF-head); a named bone without rotation fcurves on the action is an error."""
 import bpy, math, sys
 from mathutils import Vector
 args = sys.argv[sys.argv.index("--") + 1:]
+bones, rest = {"--neck": "DEF-neck", "--head": "DEF-head"}, []
+while args:
+    x = args.pop(0)
+    if x in bones:
+        if not args: sys.exit(f"render_drive: {x} needs a bone name")
+        bones[x] = args.pop(0)
+    else:
+        rest.append(x)
+args = rest
 opts = dict(x.split("=", 1) for x in args if "=" in x)  # res=<px> ortho=<scale> for a larger canvas
 args = [x for x in args if "=" not in x]
 glb, action, out, facing, elev, repeats, pre, post = args[:8]
@@ -17,18 +26,21 @@ act = bpy.data.actions[action]
 rig.animation_data_create(); rig.animation_data.action = act
 if hasattr(rig.animation_data, "action_slot") and act.slots:
     rig.animation_data.action_slot = act.slots[0]
-def pitch_bone(act, bone, deg):
-    from mathutils import Quaternion
+def rotation_fcurves(act, bone):
     fcs = [f for f in act.layers[0].strips[0].channelbags[0].fcurves if f.data_path == f'pose.bones["{bone}"].rotation_quaternion']
-    fcs.sort(key=lambda f: f.array_index)
-    if len(fcs) != 4: return
+    if len(fcs) != 4:
+        sys.exit(f"render_drive: bone {bone!r} has no rotation_quaternion fcurves on action {act.name!r}; set rig: in project.yaml")
+    return sorted(fcs, key=lambda f: f.array_index)
+def pitch_bone(fcs, deg):
+    from mathutils import Quaternion
     tilt = Quaternion((1, 0, 0), math.radians(deg))
     for k in range(len(fcs[0].keyframe_points)):
         q = Quaternion([f.keyframe_points[k].co[1] for f in fcs]) @ tilt
         for i, f in enumerate(fcs): f.keyframe_points[k].co[1] = q[i]
     for f in fcs: f.update()
 if head_pitch:
-    pitch_bone(act, "DEF-neck", -head_pitch / 2); pitch_bone(act, "DEF-head", -head_pitch / 2)
+    neck, head = rotation_fcurves(act, bones["--neck"]), rotation_fcurves(act, bones["--head"])
+    pitch_bone(neck, -head_pitch / 2); pitch_bone(head, -head_pitch / 2)
 root = rig
 while root.parent: root = root.parent
 root.rotation_mode = "XYZ"; root.rotation_euler[2] += math.radians(facing)

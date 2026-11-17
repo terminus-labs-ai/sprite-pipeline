@@ -229,7 +229,8 @@ class StageCtx:
                      str(anim.source), anim.action, str(frames), str(FACING[d]),
                      str(DRIVE_ELEV), str(anim.repeats), str(anim.pre), str(anim.post)]
             if anim.head_lift:
-                argv.append(str(anim.head_lift))
+                # the bone names ride only with the pitch (FR 3, rig.neck/rig.head)
+                argv += [str(anim.head_lift), "--neck", p.rig["neck"], "--head", p.rig["head"]]
             if anim.canvas and anim.canvas != p.sprite.frame_size:
                 # a larger canvas widens the camera by the same ratio, so the
                 # mannequin keeps its pixel size and gains room around it
