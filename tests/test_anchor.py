@@ -204,11 +204,13 @@ class AnchorCase(unittest.TestCase):
 def _make_project_dir(base):
     """`examples/isometric` copied to an asset-free working copy: the project
     file's relative paths (stills/, anims/, workflows/) get directories to
-    hold them, filled by the test. Used by the AC15 gate rows, which write
-    their own stub still and GLB bytes."""
+    hold them, filled by the test (the source still included, so the FR 4
+    missing-still rule does not fire before the profile gate). Used by the
+    AC15 gate rows, which write their own stub still and GLB bytes."""
     (base / "stills").mkdir(parents=True, exist_ok=True)
     (base / "anims").mkdir(parents=True, exist_ok=True)
     (base / "workflows").mkdir(parents=True, exist_ok=True)
+    spec_still().save(base / "stills" / "courier.png")
     # the project file's workflow paths resolve against it; the packaged
     # workflow files stand in for the copy a user keeps in the project
     for name in ("edit.json", "animate.json"):
@@ -354,10 +356,11 @@ class TestProfileGate(GoEnv):
 
     def test_r4_unprofiled_glb_exit_2_prints_prefix_and_command(self):
         """The load-level gate (FR 4): the message names the GLB, prints the
-        sha256 prefix and the command that measures a profile."""
+        sha256 prefix and the command that measures a profile. The unprofiled
+        GLB is written before any other GLB byte is seen, so it is the first
+        source the gate meets."""
         payload = b"glb bytes no profile knows"
-        unknown = self.base / "anims" / "unknown.glb"
-        unknown.write_bytes(payload)
+        (self.base / "anims" / "ual.glb").write_bytes(payload)
         digest = hashlib.sha256(payload).hexdigest()
         with self.assertRaises(project.ProjectError) as cm:
             project.load_project(self.project, profiles={})  # no profiles at all
@@ -438,49 +441,63 @@ class TestEditConsumesTheAnchoredMaster(GoEnv):
         self.assertEqual(code, 0, out)
         edits = self.edit_calls(self.fake)
         self.assertEqual(len(edits), 4, "\n".join(" ".join(c) for c in self.fake.calls))
-        se = self.master / "se.png"
+        s = self.master / "s.png"
         for e in edits:
-            self.assertEqual(e[e.index("--image") + 1], str(se))
-            self.assertEqual(Image.open(se).size, (832, 1024))
+            self.assertEqual(e[e.index("--image") + 1], str(s))
+            self.assertEqual(Image.open(s).size, (832, 1024))
         # the master itself is anchored: flat green, profile target, feet on the
         # floor line, centred
-        m = metrics.measure(se)
+        m = metrics.measure(s)
         self.assertAlmostEqual(m["body_h"], expected_target(704), delta=1.5)
         self.assertAlmostEqual(m["floor_y"], expected_floor(704), delta=1.5)
         self.assertAlmostEqual(m["centre_x"], 416, delta=1.5)
-        self.assertEqual(Image.open(se).getpixel((0, 0)), CHROMA)
+        self.assertEqual(Image.open(s).getpixel((0, 0)), CHROMA)
 
     def test_r5_keyed_file_is_master_s_keyed_png(self):
-        """The keyed master is `master/s.keyed.png`: the FR 6 direction is `s`,
-        so the cutout of the master keys to that name."""
-        # the example project's first generate entry is `s`: the still's own
-        # direction is the master and keys to master/s.keyed.png
-        text = self.project.read_text().replace("generate: [s, se, e, ne, n]",
-                                                "generate: [se, e, ne, n]")
-        self.project.write_text(text)
+        """The keyed master is `master/s.keyed.png` (AC15): the still's own
+        direction is `s` (the master), and the cutout of the master keys to
+        that name."""
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
         self.assertEqual(code, 0, out)
         cutouts = [c for c in self.fake.calls if Path(c[0]).name == "sprite-gen"]
         self.assertEqual(len(cutouts), 1, "\n".join(" ".join(c) for c in self.fake.calls))
         self.assertEqual(cutouts[0][cutouts[0].index("--out") + 1],
                          str(self.master / "s.keyed.png"))
-        # the keyed input is the anchored master
-        self.assertEqual(cutouts[0][2], str(self.master / "se.png"))
+        # the keyed input is the anchored master (the master's own direction, s)
+        self.assertEqual(cutouts[0][2], str(self.master / "s.png"))
 
-    def test_r5_no_se_fit_file_is_prepared_anymore(self):
-        """The 832x1024 `se.fit.png` companion of the old fill-fit flow is gone:
+    def test_r5_no_fit_file_is_prepared_anymore(self):
+        """The 832x1024 `s.fit.png` companion of the old fill-fit flow is gone:
         the master itself is the edit input."""
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
         self.assertEqual(code, 0, out)
+        self.assertFalse((self.master / "s.fit.png").exists())
         self.assertFalse((self.master / "se.fit.png").exists())
 
     def test_r5_direction_stills_keep_the_edit_canvas(self):
-        """A direction still is the edit's own output on the 832x1024 canvas —
-        no 1280 padding is applied to it."""
-        code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
+        """A direction still is the edit's own output, landing on the 832x1024
+        edit canvas — no 1280 padding is applied to it. The fake edit here
+        copies the edit's own input (the anchored master), so each direction
+        still is the edit output at the master's size."""
+        code, out = self.run_cli(["go", str(self.project)], fake=self._copy_fake())
         self.assertEqual(code, 0, out)
-        for d in ("s", "e", "ne", "n"):
+        for d in ("se", "e", "ne", "n"):
             self.assertEqual(Image.open(self.master / f"{d}.png").size, (832, 1024), d)
+
+    def _copy_fake(self):
+        """A fake edit that copies its --image to --copy-to (the edit output
+        is the anchored master's own bytes)."""
+        def _copy(argv):
+            src = argv[argv.index("--image") + 1]
+            dst = Path(argv[argv.index("--copy-to") + 1])
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(Path(src).read_bytes())
+        def _keyed(argv):
+            out = Path(argv[argv.index("--out") + 1])
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(_stub_glb_bytes())
+        return FakeRun(after={"sprite_pipeline.comfy edit": _copy,
+                              "cutout": _keyed})
 
 
 # --------------------------------------------- AC15-r6 (amendment 4): subcommand
@@ -598,6 +615,8 @@ class TestMannequinProfileCommand(unittest.TestCase):
         """The real render path (Blender faked at subprocess.run to write
         nothing) reports a failed render instead of measuring nothing."""
         cli.render_mannequin = self._old_render
+        old_run = subprocess.run
+        self.addCleanup(setattr, subprocess, "run", old_run)
         subprocess.run = lambda argv, **kw: _Res(0)
         with self.assertRaises(SystemExit):
             cli.render_mannequin(self.glb)

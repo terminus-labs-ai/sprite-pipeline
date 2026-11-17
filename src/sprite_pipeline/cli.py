@@ -293,10 +293,8 @@ def cmd_approve(args, out, **load_kwargs):
 def render_mannequin(glb):
     """Render the GLB's `A_TPose` at the drive resolution 704 with the drive
     camera (facing `s`, elevation 45°, ortho 3.0 — the same camera and scene
-    the drive plan uses) into a temporary directory. Returns the path of the
-    rendered frame. Needs Blender and the host config (FR 14)."""
-    import tempfile
-
+    the drive plan uses). Returns the path of the rendered frame. Needs
+    Blender and the host config (FR 14)."""
     from PIL import Image
 
     # a stand-in project for the drive plan: the drive resolution, the
@@ -313,18 +311,19 @@ def render_mannequin(glb):
                                   rig={"neck": "DEF-neck", "head": "DEF-head"},
                                   workflows={}, characters=[], animations=[]),
                           config.load())
-    frames = Path(tempfile.mkdtemp(prefix="sp-tpose-")) / "frames"
-    frames.mkdir(parents=True)
     anim = project.Animation(name="A_TPose", source=Path(glb), action="A_TPose",
                              frames=1, loop=False, prompt="")
-    cmds = ctx.plan_pair("mannequin", anim, "s", "drive")
+    # the plan's own frames dir: where the blender step writes, and where the
+    # measurement reads back. The plan's copy_file step (the mp4 upload to
+    # ComfyUI's input/) is dropped here — the render keeps its own frames and
+    # there is no upload. When no frame lands, the glob below finds nothing
+    # and this raises SystemExit, never a traceback.
+    frames = ctx.frames_dir("mannequin", anim, "s")
+    cmds = [(c, k) for c, k in ctx.plan_pair("mannequin", anim, "s", "drive")
+            if k != "copy-drive"]
     log = []
     if not run_cmds(ctx, cmds, log):
         raise SystemExit(f"mannequin-profile: rendering {glb} failed")
-    # measure from the frames dir the plan's blender step actually writes
-    # into (the motion-cache one), not the local dir: when no frame lands,
-    # this raises SystemExit below instead of failing at the first shot open
-    frames = ctx.frames_dir("mannequin", anim, "s")
     shots = sorted(frames.glob("f*.png"))
     if not shots:
         # the fake renderer wrote nothing where the plan pointed: nothing to

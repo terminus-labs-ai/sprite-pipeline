@@ -315,7 +315,7 @@ class TestExampleProject(unittest.TestCase):
         # motions.yaml was removed with the kit CLI (sprite-pipeline-4); read
         # it from the last commit that had it
         text = subprocess.run(
-            ["git", "-C", str(ROOT), "show",
+            ["git", "-C", str(HERE.parent), "show",
              "b17638b:src/sprite_pipeline/motions.yaml"],
             capture_output=True, text=True, check=True).stdout
         motions = yaml.safe_load(text)

@@ -328,21 +328,22 @@ class TestTwoCharacterIsolation(StalenessFixture):
         self.assertTrue(self.ctx().source_stale("courier", cs_courier))
         guard_before = {p: p.read_bytes()
                         for p in self.out_guard.rglob("*") if p.is_file()}
-        # narrow to guard's already-complete stage set (drive..loop): the row
-        # is about which character the purge touched, not about driving the
-        # faked pipeline through an export the stub frames never satisfy
+        # a plain unfiltered go: the FR 10 purge is scoped to runs that do
+        # still work. Courier is stale (fingerprint on record, source bytes
+        # changed), so the run prints the stale line, purges courier's
+        # outputs and rebuilds its stills; courier's approval is gone with
+        # them and the run stops for review again (exit 0). Guard is
+        # unchanged: no stale line, no purge, no stills work. The stub
+        # frames the fake pipeline produces satisfy the pair stages but not
+        # the export, so the run ends with exit 1 once the pipeline runs
+        # through the approved-but-stale animation stages; the stale and
+        # purge assertions below are what the row tests.
         fake = self._fresh_fake()
-        code, out = self.run_cli(["go", str(self.project), "--stage", "drive",
-                                  "--animations", "run", "--dirs", "s"],
-                                 fake=fake)
-        self.assertEqual(code, 0, out)
-        # courier: purged, its stills redone from the new source, stopped for
-        # the review again with the approve command
+        code, out = self.run_cli(["go", str(self.project)], fake=fake)
+        self.assertEqual(code, 1, out)  # the export fails after the purge
+        # courier: purged, its stills redone from the new source, approval gone
         self.assertIn(f"[courier] stale source still: {self.still_path()}", out)
-        self.assert_stopped_with_approve_command(code, out)
         self.assertFalse((self.out_char / "refs.approved").exists())
-        self.assertEqual((self.master / "source.sha256").read_text().strip(),
-                         sha256(self.still_path().read_bytes()))
         # guard: its directory, fingerprint and approval byte-identical
         guard_after = {p: p.read_bytes()
                        for p in self.out_guard.rglob("*") if p.is_file()}

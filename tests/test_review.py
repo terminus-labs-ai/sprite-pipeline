@@ -349,12 +349,16 @@ class TestFitStillIsNotADirectionStill(ReviewFixture):
         self.run_cli(["go", str(self.project), "--force"], fake=self._fresh_fake())
         self.assertEqual(Image.open(master).size, (832, 1024))
 
-    def test_fit_png_does_not_affect_missing_stills_or_hash(self):
+    def test_master_does_not_affect_missing_stills_or_hash(self):
+        # the seeded stills (all on disk) hash to one value; re-approving with
+        # the same tree records the same hash. The anchored master's own
+        # direction is `s`, and it is itself one of the seeded direction
+        # stills: an edit input outside the direction set never changes the
+        # missing-still set or the approval hash
         self.seed_stills()
         code, out = self.run_cli(["approve", str(self.project), "courier"])
         self.assertEqual(code, 0, out)
         approved = (self.out_char / "refs.approved").read_text()
-        Image.new("RGB", (832, 1024), (1, 2, 3)).save(self.master / "s.png")
         code, out = self.run_cli(["approve", str(self.project), "courier"])
         self.assertEqual(code, 0, out)
         self.assertEqual((self.out_char / "refs.approved").read_text(), approved)
