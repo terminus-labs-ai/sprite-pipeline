@@ -14,6 +14,7 @@ from pathlib import Path
 
 from PIL import Image
 
+import mannequins
 from sprite_pipeline import config, project, stages
 from sprite_pipeline.export_godot import anim_name, direction_order, write_tres
 
@@ -53,6 +54,7 @@ def _write_project(tmp, generate, mirror, naming):
     png = Image.new("RGBA", (2, 2), (2, 3, 5, 255))
     png.save(base / "stills" / "courier.png")
     (base / "anims" / "ual.glb").write_bytes(png.tobytes())
+    mannequins.register(png.tobytes(), glb_name="ual.glb")
     p = base / "project.yaml"
     text = p.read_text()
     text = text.replace("generate: [s, se, e, ne, n]", f"generate: [{', '.join(generate)}]")

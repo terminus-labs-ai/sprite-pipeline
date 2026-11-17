@@ -316,6 +316,11 @@ class TestStandingRuleRejects(GoEnv):
                                        feet_from_bottom=400),
     }
 
+    def setUp(self):
+        super().setUp()
+        # the stub GLB passes the profile gate, so `go` reaches the standing rule
+        mannequins.register(self.glb_bytes, glb_name="ual.glb")
+
     def run_case(self, name):
         mannequins.pose_frame(500, 900, **self.CASES[name]).save(
             self.base / "stills" / "courier.png")

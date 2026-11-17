@@ -5,9 +5,9 @@ mannequin profile, and every stub GLB in this suite hashes to an unknown
 value. Tests that load a project or run `go` need their stub bytes
 registered — the test-visible stand-in for the packaged
 `data/mannequin_profiles.json`; `tests/conftest.py` merges this registry into
-`project.anchor_profiles`. `tests/conftest.py` registers the source GLBs found in each
-test's own project directory. A test that wants the gate to *reject* simply
-points at a GLB outside that directory.
+`project.anchor_profiles`. Each fixture that writes stub GLB bytes registers
+those exact bytes with `register`; nothing is discovered from the filesystem.
+A test that wants the gate to *reject* writes bytes no fixture registers.
 
 `standing_still` and `pose_frame` build the images the FR 6 rules are tested
 against: a flat-background standing figure, and a figure placed by rule
