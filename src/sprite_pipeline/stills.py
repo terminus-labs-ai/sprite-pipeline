@@ -8,8 +8,8 @@ does not stand, naming the file and the failed rule (`too wide`, `too small` or
 
 `anchor` then prepares the master: the still is scaled uniformly so its
 measured body height equals the mannequin profile's target on the 832x1024 edit
-canvas — `body_h * 1024 / frame_size` px (470 at the default 704) — with its
-feet pinned to floor `floor_y(frame_size) * 1024 / frame_size` (766 at 704) and
+canvas — `body_h * 1024 / frame_size` px (471.3 at the default 704) — with its
+feet pinned to floor `floor_y(frame_size) * 1024 / frame_size` (763.6 at 704) and
 the figure centred horizontally (x 416). Every other pixel is flat chroma green
 (CHROMA_GREEN). Anchoring reproduces the drive-video geometry after the animate
 step's 832->`frame_size` downscale, so Wan Animate receives a ref framed like
@@ -31,7 +31,7 @@ STILL_SIZE = (832, 1024)
 # the drive camera's canvas and the edit canvas it is composited onto (FR 6)
 DRIVE_RES = 704
 CANVAS_W = 832
-CANVAS_H = metrics.CANVAS_H
+CANVAS_H = 1024
 # the flat chroma background of an anchored master (FR 6)
 CHROMA_GREEN = (31, 203, 25)
 
@@ -65,11 +65,21 @@ def check(src):
     return metrics.measure(src)
 
 
+def anchor_floor(floor_y, frame_size):
+    """FR 6 + FR 14: the floor row in px of the anchored master on the
+    832x1024 edit canvas for a 704-res `floor_y` and the drive `frame_size`:
+    FR 14's drive rule shifts the 704-res floor by
+    `(max(frame_size, 704) - 704) // 2`, and the edit canvas maps it by
+    1024 / frame_size — 525 -> 763.6 at 704, 525 -> 685 at 1024."""
+    canvas = max(int(frame_size), DRIVE_RES)
+    return metrics.floor_for_canvas(floor_y, canvas) * CANVAS_H / int(frame_size)
+
+
 def body_target(frame_size, profile=None):
     """FR 6: the body height in px the anchored master measures on the
     832x1024 edit canvas — the profile's `body_h` at the drive resolution
-    scaled by 1024 / frame_size (324 -> 471 at frame_size 704 — the spec's
-    rounded 470 —, 324 at 1024)."""
+    scaled by 1024 / frame_size (324 -> 471.3 at frame_size 704, 324 at
+    1024)."""
     if profile is None:
         profile = next(iter(metrics.load_profiles().values()))
     return profile["body_h"] * CANVAS_H / frame_size
@@ -77,11 +87,11 @@ def body_target(frame_size, profile=None):
 
 def floor_line(frame_size, profile=None):
     """FR 6: the floor row in px of the anchored master on the 832x1024 edit
-    canvas — `metrics.anchor_floor` of the profile's 704-res `floor_y`
-    (525 -> 766 at frame_size 704, 525 -> 685 at 1024)."""
+    canvas — `anchor_floor` of the profile's 704-res `floor_y`
+    (525 -> 763.6 at frame_size 704, 525 -> 685 at 1024)."""
     if profile is None:
         profile = next(iter(metrics.load_profiles().values()))
-    return metrics.anchor_floor(profile["floor_y"], frame_size)
+    return anchor_floor(profile["floor_y"], frame_size)
 
 
 def anchor(src, dst, frame_size, profile):
@@ -125,7 +135,7 @@ def anchor(src, dst, frame_size, profile):
     bx0, bx1 = int(xs.min()), int(xs.max()) + 1
     by0, by1 = int(ys.min()), int(ys.max()) + 1
     left = CANVAS_W // 2 - round((bx0 + bx1 - 1) / 2)
-    floor = metrics.anchor_floor(profile["floor_y"], frame_size)
+    floor = anchor_floor(profile["floor_y"], frame_size)
     top = round(floor + 1 - by1)
     canvas = Image.new("RGB", STILL_SIZE, CHROMA_GREEN)
     car = numpy.array(canvas)  # writable copy of the flat chroma canvas
