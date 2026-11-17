@@ -6,8 +6,11 @@ them in all kinds of places — `setUp`, the test body, a module-level helper
 that some suites reach through their own copy of `tempfile`. Rather than
 teach every one of them about the gate, this bootstrap registers each stub
 GLB found under the system temp root (where every test project lives) into
-the test registry `project.packaged_profiles` reads, around every test and
-around every test-class setup. The content rule (FR 4) is unchanged for
+the test registry (tests/mannequins.py), around every test and around every
+test-class setup. `project.anchor_profiles` — the default profile map of
+`load_project` and of `go`'s anchoring — is wrapped here to merge that
+registry over the packaged and host profiles; production code knows nothing
+of the registry. The content rule (FR 4) is unchanged for
 every other GLB: a project outside the temp tree is still gated on its sha256.
 
 A test that wants the gate to *reject* (AC15-r4) uses a source GLB outside
@@ -21,6 +24,20 @@ import unittest
 from pathlib import Path
 
 import mannequins
+
+from sprite_pipeline import project
+
+_anchor_profiles = project.anchor_profiles
+
+
+def _anchor_profiles_with_stubs():
+    """The packaged + host profiles with the registered stub GLBs merged in."""
+    profiles = _anchor_profiles()
+    profiles.update(mannequins.profiles())
+    return profiles
+
+
+project.anchor_profiles = _anchor_profiles_with_stubs
 
 GLB_SUFFIXES = (".glb", ".gltf")
 # every TemporaryDirectory in the suite (and pytest's tmp_path tree) lives here

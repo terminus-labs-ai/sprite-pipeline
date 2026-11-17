@@ -4,8 +4,8 @@
 - r1: `anchor` on a synthetic 500x900 still (flat background, body bbox 300 px
   tall x 200 wide, feet 10 px from the frame bottom) yields the 832x1024 master
   on flat chroma green (31, 203, 25) whose measured body height is the profile
-  target 470 +/- 1, floor 766 +/- 1, centred on x 416 (the frame_size 704 rule:
-  profile body_h x 1024 / frame_size, floor_y 525 likewise).
+  target (the frame_size 704 rule: profile body_h x 1024 / frame_size, floor_y
+  525 likewise), centred on x 416.
 - r2: the same source at frame_size 1024 measures 324 +/- 1 and floor 685 +/- 1.
 - r3: a non-standing still (lying / too wide / too small / floating) makes `go`
   exit 2 naming the file and the failed rule.
@@ -18,9 +18,10 @@
   existing entry for the same hash (no duplicate).
 
 The anchor rows state their expected numbers independently of production code,
-as the literal FR 6 formula over the profile: 324 x 1024 / 704 = 471.27… ->
-470 +/- 1 (the spec's rounded 470), 525 x 1024 / 704 = 763.6… -> 766 +/- 1, and
-at frame_size 1024: 324 x 1024 / 1024 = 324, (525 + (1024 - 704) // 2) = 685.
+as the literal FR 6 formula over the profile, each +/- 1: 324 x 1024 / 704 =
+471.3 and 525 x 1024 / 704 = 763.6 at frame_size 704 (the AC's rounded 470 /
+766 do not follow from the formula), and at frame_size 1024:
+324 x 1024 / 1024 = 324, (525 + (1024 - 704) // 2) = 685.
 
 No network, GPU, Blender or ComfyUI: subprocesses are faked at subprocess.run,
 the config home is isolated per test, the mannequin profiles are injected.
@@ -105,16 +106,16 @@ class AnchorCase(unittest.TestCase):
 
     def _assert_geometry(self, dst, frame_size, prof=None):
         m = metrics.measure(dst)
-        self.assertAlmostEqual(m["body_h"], expected_target(frame_size, prof), delta=1.5)
-        self.assertAlmostEqual(m["floor_y"], expected_floor(frame_size, prof), delta=1.5)
+        self.assertAlmostEqual(m["body_h"], expected_target(frame_size, prof), delta=1)
+        self.assertAlmostEqual(m["floor_y"], expected_floor(frame_size, prof), delta=1)
         # centred horizontally: the measured centre sits on the canvas centre
-        self.assertAlmostEqual(m["centre_x"], 416, delta=1.5)
+        self.assertAlmostEqual(m["centre_x"], 416, delta=1)
         return m
 
     # ------------------------------------------------------------------ AC15-r1
     def test_r1_anchor_is_832x1024_on_flat_green_at_the_profile_target(self):
         """AC15-r1: the 500x900 still anchors to the 832x1024 master on flat
-        chroma green, body 470 +/- 1, floor 766 +/- 1, centre x 416 (704)."""
+        chroma green at the FR 6 profile target, centre x 416 (704)."""
         dst = self._anchor(spec_still(), 704)
         out = Image.open(dst)
         self.assertEqual(out.size, (832, 1024))
@@ -123,10 +124,10 @@ class AnchorCase(unittest.TestCase):
         self.assertEqual(out.getpixel((831, 0)), CHROMA)
         self.assertEqual(out.getpixel((0, 1023)), CHROMA)
         self.assertEqual(out.getpixel((831, 1023)), CHROMA)
-        m = self._assert_geometry(dst, 704)
-        # the spec's own rounded numbers, pinned independently of the formula
-        self.assertAlmostEqual(m["body_h"], 470, delta=2)
-        self.assertAlmostEqual(m["floor_y"], 766, delta=4)
+        # the FR 6 formula at 704: 324 x 1024 / 704 = 471.3 and
+        # 525 x 1024 / 704 = 763.6, each +/- 1 (the AC's rounded "470" and
+        # "766" do not follow from the formula; reported for a spec fix)
+        self._assert_geometry(dst, 704)
 
     def test_r1_green_is_the_flat_chroma_colour_everywhere_off_the_figure(self):
         """Every background pixel of the master is (31, 203, 25) — a corner
@@ -175,8 +176,7 @@ class AnchorCase(unittest.TestCase):
     def test_r2_larger_mannequin_anchors_larger(self):
         """A profile with a bigger body (the male mannequin, 345/538) anchors
         the same still bigger and lower: 502 / 784 at frame_size 704."""
-        prof = profile(body_h=345, floor_y=538, glb_name="ual.glb") \
-            if False else dict(profile(body_h=345, floor_y=538))
+        prof = profile(body_h=345, floor_y=538)
         dst = self._anchor(spec_still(), 704, prof)
         m = metrics.measure(dst)
         self.assertAlmostEqual(m["body_h"], 345 * 1024 / 704, delta=1.5)
@@ -388,7 +388,6 @@ class TestProfileGate(GoEnv):
     def test_r4_a_profiled_glb_passes_the_gate(self):
         """The same run with the GLB's profile registered gets past the gate."""
         mannequins.register(self.glb_bytes, glb_name="ual.glb")
-        (self.base / "stills" / "courier.png").save if False else None
         spec_still().save(self.base / "stills" / "courier.png")
         fake = FakeRun(after={"sprite_pipeline.comfy edit": self._write_still,
                              "cutout": self._write_keyed})

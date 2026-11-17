@@ -4,9 +4,8 @@
 mannequin profile, and every stub GLB in this suite hashes to an unknown
 value. Tests that load a project or run `go` need their stub bytes
 registered — the test-visible stand-in for the packaged
-`data/mannequin_profiles.json` — through `project.packaged_profiles`, which
-adds this registry to the packaged file (the registry is empty outside the
-test suite). `tests/conftest.py` registers the source GLBs found in each
+`data/mannequin_profiles.json`; `tests/conftest.py` merges this registry into
+`project.anchor_profiles`. `tests/conftest.py` registers the source GLBs found in each
 test's own project directory. A test that wants the gate to *reject* simply
 points at a GLB outside that directory.
 

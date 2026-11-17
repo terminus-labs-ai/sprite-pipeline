@@ -100,18 +100,13 @@ def resolve_run(project_path, args):
     return proj, config.load(), chars, [a.name for a in anims], dirs, rerolls
 
 
-def _prepares_stills(args):
-    """Whether this run does any still work at all (FR 6, FR 10): `--stage`
-    over a pair or kit stage runs only that stage, and a character already
-    approved continues past the still work (its skip-if-exists holds) unless
-    --force names it again. Used for the FR 6 standing-figure gate and to
-    scope the FR 10 stale-source purge: a run that does no still work
-    neither measures a source image nor deletes a character's outputs."""
-    if args["stage"] is not None:
-        return False
-    if args["no_stop"]:
-        return args["force"]
-    return True
+def _redoes_stills(ctx, char, cs, reroll):
+    """Whether `go` prepares this character's stills this run (FR 6, FR 10):
+    a stale source (purged and rebuilt), a missing direction still, no
+    matching approval, or a reroll. The same condition the run loop uses."""
+    stale = (ctx.project.output_root() / char).is_dir() and ctx.source_stale(char, cs)
+    return (stale or bool(ctx.missing_stills(char)) or not ctx.is_approved(char)
+            or bool(reroll))
 
 
 def _print_plan_line(char, stage, argv, out):
@@ -433,18 +428,15 @@ def _go(args, out, load_kwargs=None):
         proj, cfg, chars, anim_names, dirs, rerolls = resolve_run(args["project_file"], args)
         # FR 6: a character's still must be an A- or T-pose standing figure —
         # checked before any output is touched, so a bad still exits 2 naming
-        # the file and the failed rule. Only when this run prepares stills: a
-        # narrowed run (--stage, or --no-stop over approved stills) never
-        # touches the source image.
-        if not args["dry_run"] and _prepares_stills(args):
-            # skip-if-exists (FR 10): a character whose direction stills all
-            # exist does no still work this run, so its source image is not
-            # measured — only the characters that would prepare stills are
+        # the file and the failed rule. Only for a character whose stills
+        # this run prepares: an approved, complete, unchanged character's
+        # source image is not measured (skip-if-exists, FR 10).
+        if not args["dry_run"]:
             check_ctx = stages.StageCtx(proj, cfg)
             for name in chars:
-                if not check_ctx.missing_stills(name):
-                    continue
                 cs = next(c for c in proj.characters if c.name == name)
+                if not _redoes_stills(check_ctx, name, cs, rerolls.get(name)):
+                    continue
                 # FigureError (a failed rule, naming the file) is a ValueError;
                 # any other read error (not an image at all) is reported as
                 # the same exit-2 project error, never a traceback
@@ -462,7 +454,6 @@ def _go(args, out, load_kwargs=None):
     pair_stages = [s for s in selected if s in stages.PAIR_STAGES]
     kit_stages = [s for s in selected if s in stages.KIT_STAGES]
     dry = args["dry_run"]
-    prepares = _prepares_stills(args)
     ctx = stages.StageCtx(proj, cfg)
     log, status, failed, stopped = [], {}, [], []
 
@@ -473,19 +464,13 @@ def _go(args, out, load_kwargs=None):
         # approval and every derived clip, loop and export.
         char_out = ctx.project.output_root() / char
         if char_out.is_dir() and ctx.source_stale(char, cs):
-            # FR 10: the character is stale whenever its source bytes changed.
-            # A run that does still work (no --stage) purges the outputs —
-            # a --dry-run plans the purge and deletes nothing; a narrowed run
-            # (--stage) never touches another run's outputs or prints, and
-            # simply rebuilds what that stage needs from the new source.
-            if prepares:
-                print(f"[{char}] stale source still: {cs.still}", file=out)
-                if not dry:
-                    ctx.drop_char_outputs(char)
-                else:
-                    print(f"[{char}] stale: rebuild planned, no deletion "
-                          f"(--dry-run)", file=out)
-        elif prepares and char_out.is_dir() and ctx.recorded_source_hash(char) is None:
+            print(f"[{char}] stale source still: {cs.still}", file=out)
+            if not dry:
+                ctx.drop_char_outputs(char)
+            else:
+                print(f"[{char}] stale: rebuild planned, no deletion (--dry-run)",
+                      file=out)
+        elif char_out.is_dir() and ctx.recorded_source_hash(char) is None:
             # a legacy output directory carries no usable fingerprint (no file,
             # unreadable, or blank): record the current source's hash and keep
             # the outputs (unknown, not stale)

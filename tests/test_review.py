@@ -33,8 +33,6 @@ import mannequins
 
 from sprite_pipeline import cli, config, project, stages, stills
 
-import mannequins
-
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = ROOT / "examples" / "isometric"
 
@@ -349,26 +347,24 @@ class TestFitStillIsNotADirectionStill(ReviewFixture):
         self.run_cli(["go", str(self.project), "--force"], fake=self._fresh_fake())
         self.assertEqual(Image.open(master).size, (832, 1024))
 
-    def test_master_does_not_affect_missing_stills_or_hash(self):
-        # the seeded stills (all on disk) hash to one value; re-approving with
-        # the same tree records the same hash. The anchored master's own
-        # direction is `s`, and it is itself one of the seeded direction
-        # stills: an edit input outside the direction set never changes the
-        # missing-still set or the approval hash
+    def test_fit_png_does_not_affect_missing_stills_or_hash(self):
+        # a leftover se.fit.png of the retired fill-fit flow is not a
+        # direction still: it never changes the approval hash
         self.seed_stills()
         code, out = self.run_cli(["approve", str(self.project), "courier"])
         self.assertEqual(code, 0, out)
         approved = (self.out_char / "refs.approved").read_text()
+        Image.new("RGB", (832, 1024), (1, 2, 3)).save(self.master / "se.fit.png")
         code, out = self.run_cli(["approve", str(self.project), "courier"])
         self.assertEqual(code, 0, out)
         self.assertEqual((self.out_char / "refs.approved").read_text(), approved)
 
     def test_fit_png_alone_is_not_a_still(self):
         self.master.mkdir(parents=True, exist_ok=True)
-        Image.new("RGB", (832, 1024), (1, 2, 3)).save(self.master / "s.png")
+        Image.new("RGB", (832, 1024), (1, 2, 3)).save(self.master / "se.fit.png")
         code, out = self.run_cli(["approve", str(self.project), "courier"])
         self.assertEqual(code, 2, out)
-        self.assertNotIn("s.fit", out)
+        self.assertNotIn("se.fit", out)
 
 
 # ----------------------------------------------------------------- AC4-r2: they

@@ -9,9 +9,9 @@ anymore.
 
 The expected numbers are stated independently of production code, as the
 literal FR 6 formula over the test mannequin profile (body_h 324, floor_y
-525 at the 704 drive resolution): 324 x 1024 / 704 = 471.3 -> 470 +/- 1
-(the spec's rounded 470), (525 + (704 - 704) // 2) x 1024 / 704 = 763.6 ->
-766 +/- 1 (the spec's rounded 766).
+525 at the 704 drive resolution), each +/- 1: 324 x 1024 / 704 = 471.3 and
+(525 + (704 - 704) // 2) x 1024 / 704 = 763.6 (AC15's rounded 470 / 766 do
+not follow from the formula).
 """
 import tempfile
 import unittest
@@ -70,8 +70,8 @@ class TestStillPreparation(unittest.TestCase):
     def test_r1_500x900_still_anchors_to_the_profile_target(self):
         """AC15-r1 (retargeted): the 500x900 standing still anchors to the
         832x1024 master on flat chroma green (31, 203, 25): measured body
-        470 +/- 1, floor 766 +/- 1, centre x 416 at the default frame size
-        704."""
+        471.3 +/- 1, floor 763.6 +/- 1, centre x 416 at the default frame
+        size 704."""
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             src = _standing_still(tmp / "src.png")
@@ -84,12 +84,12 @@ class TestStillPreparation(unittest.TestCase):
             self.assertEqual(out.getpixel((0, 1023)), CHROMA)
             self.assertEqual(out.getpixel((831, 1023)), CHROMA)
             m = metrics.measure(dst)
-            # body_h x 1024 / frame_size = 324 x 1024 / 704 = 471.3 -> 470 +/- 1
-            self.assertAlmostEqual(m["body_h"], 470, delta=2)
-            # floor_y x 1024 / frame_size = 525 x 1024 / 704 = 763.6 -> 766 +/- 1
-            self.assertAlmostEqual(m["floor_y"], 766, delta=4)
+            # body_h x 1024 / frame_size = 324 x 1024 / 704 = 471.3 +/- 1
+            self.assertAlmostEqual(m["body_h"], 324 * 1024 / 704, delta=1)
+            # floor_y x 1024 / frame_size = 525 x 1024 / 704 = 763.6 +/- 1
+            self.assertAlmostEqual(m["floor_y"], 525 * 1024 / 704, delta=1)
             # centred horizontally: the measured centre sits on the canvas centre
-            self.assertAlmostEqual(m["centre_x"], 416, delta=1.5)
+            self.assertAlmostEqual(m["centre_x"], 416, delta=1)
 
     def test_r2_832x1024_still_anchors_unscaled_in_size(self):
         """AC15-r2 (retargeted): a standing still exactly 832x1024 anchors to
@@ -108,9 +108,9 @@ class TestStillPreparation(unittest.TestCase):
             self.assertEqual(out.getpixel((0, 0)), CHROMA)
             self.assertEqual(out.getpixel((831, 1023)), CHROMA)
             m = metrics.measure(dst)
-            self.assertAlmostEqual(m["body_h"], 470, delta=2)
-            self.assertAlmostEqual(m["floor_y"], 766, delta=4)
-            self.assertAlmostEqual(m["centre_x"], 416, delta=1.5)
+            self.assertAlmostEqual(m["body_h"], 324 * 1024 / 704, delta=1)
+            self.assertAlmostEqual(m["floor_y"], 525 * 1024 / 704, delta=1)
+            self.assertAlmostEqual(m["centre_x"], 416, delta=1)
 
     def test_r3_2000x1000_wide_frame_anchors_the_figure(self):
         """AC15-r3 (retargeted): a wide flat-background frame whose standing
@@ -131,9 +131,9 @@ class TestStillPreparation(unittest.TestCase):
             self.assertEqual(out.getpixel((0, 1023)), CHROMA)
             self.assertEqual(out.getpixel((831, 1023)), CHROMA)
             m = metrics.measure(dst)
-            self.assertAlmostEqual(m["body_h"], 470, delta=2)
-            self.assertAlmostEqual(m["floor_y"], 766, delta=4)
-            self.assertAlmostEqual(m["centre_x"], 416, delta=1.5)
+            self.assertAlmostEqual(m["body_h"], 324 * 1024 / 704, delta=1)
+            self.assertAlmostEqual(m["floor_y"], 525 * 1024 / 704, delta=1)
+            self.assertAlmostEqual(m["centre_x"], 416, delta=1)
 
     def test_r1_green_is_flat_everywhere_off_the_figure(self):
         """Every background pixel of the master is (31, 203, 25) — a corner

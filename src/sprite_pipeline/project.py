@@ -11,7 +11,6 @@ every FR 4 case.
 """
 import hashlib
 import json
-import sys
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
@@ -164,28 +163,12 @@ def user_profiles_path():
     return config.home() / USER_PROFILES_FILE
 
 
-def packaged_profiles():
-    """The packaged mannequin profiles keyed by GLB sha256 (FR 14). Only the
-    packaged file: no user file is read here — `user_path` is aimed at a file
-    that cannot exist, which `load_profiles` treats as absent."""
-    return metrics.load_profiles(
-        user_path=metrics.PACKAGED_PROFILES.with_name("no-user-profiles"))
-
-
 def anchor_profiles():
     """FR 14: the profile map a load validates against and `go` anchors with:
     the packaged profiles merged with the host file, last-write-wins per
     hash. (A test injects its own map through `load_project(profiles=…)`
     instead of writing the host file.)"""
-    profiles = metrics.load_profiles()
-    # the suite's documented injection point: when the tests run, the stub
-    # GLB bytes the fixtures write are registered into tests/mannequins.py,
-    # whose registry this merges (tests/conftest.py registers each GLB it
-    # finds). Outside the suite the module is absent and nothing is merged.
-    stubs = sys.modules.get("mannequins")
-    if stubs is not None:
-        profiles.update(stubs.profiles())
-    return profiles
+    return metrics.load_profiles()
 
 
 def anchor_profile(proj, profiles=None):
