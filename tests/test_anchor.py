@@ -1,12 +1,18 @@
 """Anchored still preparation, the A/T-pose rule, the profile gate and the
-`mannequin-profile` subcommand (spec AC15, FR 4, FR 6, FR 14; amendments 3 and 4).
+`mannequin-profile` subcommand (spec AC15, FR 4, FR 6, FR 14; amendments 3, 4
+and 9).
 
 - r1: `anchor` on a synthetic 500x900 still (flat background, body bbox 300 px
   tall x 200 wide, feet 10 px from the frame bottom) yields the 832x1024 master
   on flat chroma green (31, 203, 25) whose measured body height is the profile
-  target (the frame_size 704 rule: profile body_h x 1024 / frame_size, floor_y
-  525 likewise), centred on x 416.
-- r2: the same source at frame_size 1024 measures 324 +/- 1 and floor 685 +/- 1.
+  target (the frame_size 704 rule: profile body_h x 832 / frame_size = 383,
+  floor floor_y x 832 / frame_size + 96 = 716), centred on x 416.
+- r2: the same source at frame_size 1024 measures 263 +/- 1 and floor 653 +/- 1.
+- Wan input (case-table AC15-r3 / AC15-r4, amendment 9): the master,
+  centre-cropped to 832x832 (rows 96-927) and scaled to frame_size the way the
+  animate workflow's ImageScale crop=center does, measures the profile's
+  body_h 324 +/- 1 with its floor on the drive floor line (525 at 704, 685 at
+  1024) +/- 1.
 - r3: a non-standing still (lying / too wide / too small / floating) makes `go`
   exit 2 naming the file and the failed rule.
 - r4: a project whose source GLB has no mannequin profile exits 2 printing the
@@ -20,10 +26,10 @@
   duplicate).
 
 The anchor rows state their expected numbers independently of production code,
-as the literal FR 6 formula over the profile, each +/- 1: 324 x 1024 / 704 =
-471.3 and 525 x 1024 / 704 = 763.6 at frame_size 704 (AC15's 471 / 764,
-amendment 7), and at frame_size 1024:
-324 x 1024 / 1024 = 324, (525 + (1024 - 704) // 2) = 685.
+as the literal FR 6 formula over the profile, each +/- 1: 324 x 832 / 704 =
+382.9 and 525 x 832 / 704 + 96 = 716.45 at frame_size 704 (AC15's 383 / 716,
+amendment 9), and at frame_size 1024: 324 x 832 / 1024 = 263.25,
+(525 + (1024 - 704) // 2) x 832 / 1024 + 96 = 652.56 (AC15's 263 / 653).
 
 No network, GPU, Blender or ComfyUI: subprocesses are faked at subprocess.run,
 the config home is isolated per test, the mannequin profiles are injected.
@@ -71,17 +77,27 @@ def profile(body_h=BODY_H, floor_y=FLOOR_Y, resolution=FRAME):
 
 def expected_target(frame_size, prof=None):
     """FR 6's target on the 832x1024 edit canvas, stated independently of
-    production code: body_h x 1024 / frame_size."""
+    production code: body_h x 832 / frame_size (amendment 9)."""
     prof = prof or profile()
-    return prof["body_h"] * 1024 / frame_size
+    return prof["body_h"] * 832 / frame_size
 
 
 def expected_floor(frame_size, prof=None):
     """FR 6/FR 14's floor line on the edit canvas: the 704 floor shifted by
-    (max(frame_size, 704) - 704) // 2, then x 1024 / frame_size."""
+    (max(frame_size, 704) - 704) // 2, then x 832 / frame_size + 96 (the
+    animate workflow's centre crop starts at row 96; amendment 9)."""
     prof = prof or profile()
     canvas = max(frame_size, FRAME)
-    return (prof["floor_y"] + (canvas - FRAME) // 2) * 1024 / frame_size
+    return (prof["floor_y"] + (canvas - FRAME) // 2) * 832 / frame_size + 96
+
+
+def as_wan_sees(master, frame_size):
+    """The animate workflow's reference mapping, stated independently of
+    production code (ComfyUI ImageScale crop=center on a square target): the
+    832x1024 master keeps rows 96-927 (832x832), then that square is scaled
+    to frame_size x frame_size with LANCZOS."""
+    im = Image.open(master).convert("RGB")
+    return im.crop((0, 96, 832, 928)).resize((frame_size, frame_size), Image.LANCZOS)
 
 
 def spec_still():
@@ -126,10 +142,12 @@ class AnchorCase(unittest.TestCase):
         self.assertEqual(out.getpixel((831, 0)), CHROMA)
         self.assertEqual(out.getpixel((0, 1023)), CHROMA)
         self.assertEqual(out.getpixel((831, 1023)), CHROMA)
-        # the FR 6 formula at 704: 324 x 1024 / 704 = 471.3 and
-        # 525 x 1024 / 704 = 763.6, each +/- 1 (AC15's 471 / 764,
-        # amendment 7)
-        self._assert_geometry(dst, 704)
+        # the FR 6 formula at 704: 324 x 832 / 704 = 382.9 and
+        # 525 x 832 / 704 + 96 = 716.45, each +/- 1 (AC15's 383 / 716,
+        # amendment 9)
+        m = self._assert_geometry(dst, 704)
+        self.assertAlmostEqual(m["body_h"], 383, delta=1)
+        self.assertAlmostEqual(m["floor_y"], 716, delta=1)
 
     def test_r1_green_is_the_flat_chroma_colour_everywhere_off_the_figure(self):
         """Every background pixel of the master is (31, 203, 25) — a corner
@@ -151,24 +169,48 @@ class AnchorCase(unittest.TestCase):
                          {"body_h": 300, "floor_y": 889, "centre_x": 249.5})
 
     # ------------------------------------------------------------------ AC15-r2
-    def test_r2_frame_size_1024_measures_324_at_floor_685(self):
-        """AC15-r2: the same source at frame_size 1024 gives body 324 +/- 1 and
-        floor 685 +/- 1 (525 + (1024 - 704) // 2), still centred on x 416."""
+    def test_r2_frame_size_1024_measures_263_at_floor_653(self):
+        """AC15-r2: the same source at frame_size 1024 gives body 263 +/- 1
+        (324 x 832 / 1024) and floor 653 +/- 1 ((525 + (1024 - 704) // 2) x
+        832 / 1024 + 96), still centred on x 416."""
         dst = self._anchor(spec_still(), 1024)
         self.assertEqual(Image.open(dst).size, (832, 1024))
         m = self._assert_geometry(dst, 1024)
+        self.assertAlmostEqual(m["body_h"], 263, delta=1)
+        self.assertAlmostEqual(m["floor_y"], 653, delta=1)
+
+    # ------------------------------------- AC15-r3 / AC15-r4 (amendment 9)
+    def test_ac15_r3_wan_input_at_704_measures_324_floor_525(self):
+        """Case-table AC15-r3: r1's master, centre-cropped to 832x832 (rows
+        96-927) and scaled to 704x704 the way the workflow's ImageScale
+        crop=center does, measures the profile's body_h 324 +/- 1 with its
+        floor on the drive floor line 525 +/- 1, centred on x 352."""
+        wan = self.tmp / "wan.png"
+        as_wan_sees(self._anchor(spec_still(), 704), 704).save(wan)
+        m = metrics.measure(wan)
+        self.assertAlmostEqual(m["body_h"], 324, delta=1)
+        self.assertAlmostEqual(m["floor_y"], 525, delta=1)
+        self.assertAlmostEqual(m["centre_x"], 352, delta=1)
+
+    def test_ac15_r4_wan_input_at_1024_measures_324_floor_685(self):
+        """Case-table AC15-r4: r2's master, cropped the same way and scaled to
+        1024x1024, measures body 324 +/- 1 with its floor on the shifted drive
+        floor line 685 +/- 1 (525 + (1024 - 704) // 2, FR 14)."""
+        wan = self.tmp / "wan.png"
+        as_wan_sees(self._anchor(spec_still(), 1024), 1024).save(wan)
+        m = metrics.measure(wan)
         self.assertAlmostEqual(m["body_h"], 324, delta=1)
         self.assertAlmostEqual(m["floor_y"], 685, delta=1)
+        self.assertAlmostEqual(m["centre_x"], 512, delta=1)
 
     def test_r2_other_frame_sizes_follow_the_rule(self):
-        """The rule at two more frame sizes (1152, 1408), corrected to the
-        FR 6/FR 14 formula: body_h x 1024 / frame_size and the shifted floor
-        floor_y(frame_size) x 1024 / frame_size — 288 / 665.8 at 1152, 235.6 /
-        637.8 at 1408 (the original 198 / 162, 472 / 509 were self-authored
-        values that contradicted the formula)."""
+        """The rule at two more frame sizes (1152, 1408), on the amendment 9
+        formula: body_h x 832 / frame_size and the shifted floor
+        floor_y(frame_size) x 832 / frame_size + 96 — 234 / 636.9 at 1152,
+        191.5 / 614.2 at 1408."""
         for frame_size, want_h, want_floor in (
-                (1152, 324 * 1024 / 1152, (525 + (1152 - 704) // 2) * 1024 / 1152),
-                (1408, 324 * 1024 / 1408, (525 + (1408 - 704) // 2) * 1024 / 1408)):
+                (1152, 324 * 832 / 1152, (525 + (1152 - 704) // 2) * 832 / 1152 + 96),
+                (1408, 324 * 832 / 1408, (525 + (1408 - 704) // 2) * 832 / 1408 + 96)):
             dst = self._anchor(spec_still(), frame_size)
             m = metrics.measure(dst)
             self.assertAlmostEqual(m["body_h"], want_h, delta=1.5)
@@ -177,12 +219,12 @@ class AnchorCase(unittest.TestCase):
 
     def test_r2_larger_mannequin_anchors_larger(self):
         """A profile with a bigger body (the male mannequin, 345/538) anchors
-        the same still bigger and lower: 502 / 784 at frame_size 704."""
+        the same still bigger and lower: 408 / 732 at frame_size 704."""
         prof = profile(body_h=345, floor_y=538)
         dst = self._anchor(spec_still(), 704, prof)
         m = metrics.measure(dst)
-        self.assertAlmostEqual(m["body_h"], 345 * 1024 / 704, delta=1.5)
-        self.assertAlmostEqual(m["floor_y"], 538 * 1024 / 704, delta=1.5)
+        self.assertAlmostEqual(m["body_h"], 345 * 832 / 704, delta=1.5)
+        self.assertAlmostEqual(m["floor_y"], 538 * 832 / 704 + 96, delta=1.5)
 
     def test_r1_anchor_rejects_a_non_standing_still(self):
         """`anchor` itself refuses a figure that fails FR 6, naming the rule."""
@@ -543,9 +585,9 @@ class TestInjectedProfilesAnchorGo(GoEnv):
         code, out = self.run_cli(["go", str(self.project)], fake=self.fake)
         self.assertEqual(code, 0, out)
         m = metrics.measure(self.master / "s.png")
-        # 345 x 1024 / 704 = 501.8 and 538 x 1024 / 704 = 782.5
-        self.assertAlmostEqual(m["body_h"], 345 * 1024 / 704, delta=1.5)
-        self.assertAlmostEqual(m["floor_y"], 538 * 1024 / 704, delta=1.5)
+        # 345 x 832 / 704 = 407.7 and 538 x 832 / 704 + 96 = 731.8
+        self.assertAlmostEqual(m["body_h"], 345 * 832 / 704, delta=1.5)
+        self.assertAlmostEqual(m["floor_y"], 538 * 832 / 704 + 96, delta=1.5)
 
 
 # ---------------------------------------- AC15-r7/r8 (amendment 4): subcommand

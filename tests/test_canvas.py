@@ -8,11 +8,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy
 from PIL import Image
 
+import mannequins
 from test_workflow_paths import cfg, stubbed_example
 
-from sprite_pipeline import config, project, stages
+from sprite_pipeline import config, metrics, project, stages, stills
 
 
 def _with_canvas(path, canvas):
@@ -94,6 +96,14 @@ class TestPlans(Case):
         self.assertEqual(argv[argv.index("--ref") + 1], str(ctx.dir_still("courier", "s")))
 
 
+def _bbox(path):
+    """(x0, y0, x1, y1) inclusive of the pixels differing from the top-left
+    colour by more than 40 in any channel (FR 6's figure mask)."""
+    arr = numpy.asarray(Image.open(path).convert("RGB"), dtype=numpy.int16)
+    ys, xs = numpy.nonzero((abs(arr - arr[0, 0]) > 40).any(axis=2))
+    return int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
+
+
 class TestPadStill(unittest.TestCase):
     def test_pad_keeps_pixel_size_and_centres_on_key_colour(self):
         with tempfile.TemporaryDirectory() as t:
@@ -105,9 +115,74 @@ class TestPadStill(unittest.TestCase):
             out = Image.open(dst).convert("RGB")
             self.assertEqual(out.size, (32, 32))
             self.assertEqual(out.getpixel((0, 0)), (0, 200, 0))
-            # the still is scaled to frame x frame, then centred: its centre lands at the canvas centre
-            ref = im.resize((20, 20), Image.LANCZOS)
+            # amendment 9: the still is centre-cropped to a square (the 50 px
+            # side keeps rows 5-44, as ImageScale crop=center does), scaled to
+            # frame x frame, then centred: its centre lands at the canvas centre
+            ref = im.crop((0, 5, 40, 45)).resize((20, 20), Image.LANCZOS)
             self.assertEqual(out.crop((6, 6, 26, 26)).tobytes(), ref.tobytes())
+
+
+class TestPadAnchoredReference(unittest.TestCase):
+    """AC17 (amendment 9): the larger-canvas reference of an anchored master
+    is the animate workflow's crop-and-scale (832x1024 -> rows 96-927 ->
+    frame x frame) centred on the canvas, so the figure keeps the mannequin's
+    pixel size and aspect. Profile ual-female: body_h 324, floor_y 525 at
+    704; canvas 1152 shifts the floor by (1152 - 704) // 2 = 224."""
+
+    PROFILE = {"glb_name": "test.glb", "resolution": 704, "body_h": 324,
+               "floor_y": 525}
+
+    def setUp(self):
+        self._t = tempfile.TemporaryDirectory()
+        self.addCleanup(self._t.cleanup)
+        self.tmp = Path(self._t.name)
+
+    def _assert_mannequin_at_1152(self, padded):
+        self.assertEqual(Image.open(padded).size, (1152, 1152))
+        m = metrics.measure(padded)
+        self.assertAlmostEqual(m["body_h"], 324, delta=1)
+        self.assertAlmostEqual(m["floor_y"], 525 + (1152 - 704) // 2, delta=1)  # 749
+        self.assertAlmostEqual(m["centre_x"], 576, delta=1)
+
+    def test_ac17_r1_padded_anchored_master_measures_the_mannequin(self):
+        """AC17-r1 through the real producer: `stills.anchor` at frame 704
+        (master body 383, floor 716 on the 832x1024 canvas, FR 6), then
+        `pad_ref` to 1152: 1152x1152, body 324 +/- 1, floor 749 +/- 1,
+        centre x 576 +/- 1."""
+        src, master = self.tmp / "src.png", self.tmp / "s.png"
+        mannequins.standing_still().save(src)
+        stills.anchor(src, master, 704, self.PROFILE)
+        m = metrics.measure(master)
+        self.assertAlmostEqual(m["body_h"], 324 * 832 / 704, delta=1)
+        self.assertAlmostEqual(m["floor_y"], 525 * 832 / 704 + 96, delta=1)
+        padded = self.tmp / "padded.png"
+        stages.pad_ref(str(master), str(padded), "704", "1152", [])
+        self._assert_mannequin_at_1152(padded)
+
+    def test_ac17_r1_pad_ref_maps_an_fr6_master_to_the_mannequin(self):
+        """AC17-r1 on `pad_ref` alone: a synthetic 832x1024 master at the FR 6
+        geometry (body 383, feet row 716, centre x 416, flat chroma green)
+        pads to body 324, floor 749, centre x 576 — a squash to 704x704 would
+        give body 263."""
+        master, padded = self.tmp / "s.png", self.tmp / "padded.png"
+        mannequins.pose_frame(832, 1024, body_h=383, body_w=200, bottom=716,
+                              centre_x=416, corner=(31, 203, 25)).save(master)
+        stages.pad_ref(str(master), str(padded), "704", "1152", [])
+        self._assert_mannequin_at_1152(padded)
+
+    def test_ac17_r2_a_square_block_stays_square(self):
+        """AC17-r2: a 40x40 block in an 832x1024 source stays square +/- 1 px
+        through `pad_ref` frame 704 on canvas 1152 (no aspect distortion;
+        uniform 704 / 832 scale: about 34 x 34)."""
+        src, padded = self.tmp / "block.png", self.tmp / "padded.png"
+        im = Image.new("RGB", (832, 1024), (31, 203, 25))
+        im.paste(Image.new("RGB", (40, 40), (140, 80, 60)), (396, 492))
+        im.save(src)
+        stages.pad_ref(str(src), str(padded), "704", "1152", [])
+        x0, y0, x1, y1 = _bbox(padded)
+        w, h = x1 - x0 + 1, y1 - y0 + 1
+        self.assertAlmostEqual(w, h, delta=1)
+        self.assertAlmostEqual(w, 40 * 704 / 832, delta=1.5)
 
 
 class TestExportMixedSizes(unittest.TestCase):

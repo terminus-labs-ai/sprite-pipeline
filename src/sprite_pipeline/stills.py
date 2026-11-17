@@ -1,5 +1,5 @@
 """Anchored still preparation, direction-edit prompts and the review sheet
-(spec FR 6-8, amendment 3).
+(spec FR 6-8, amendments 3 and 9).
 
 A character's still must be an A- or T-pose standing figure on a flat
 background. `check` (FR 6) measures it with `metrics` and rejects a figure that
@@ -8,12 +8,15 @@ does not stand, naming the file and the failed rule (`too wide`, `too small` or
 
 `anchor` then prepares the master: the still is scaled uniformly so its
 measured body height equals the mannequin profile's target on the 832x1024 edit
-canvas — `body_h * 1024 / frame_size` px (471.3 at the default 704) — with its
-feet pinned to floor `floor_y(frame_size) * 1024 / frame_size` (763.6 at 704) and
-the figure centred horizontally (x 416). Every other pixel is flat chroma green
-(CHROMA_GREEN). Anchoring reproduces the drive-video geometry after the animate
-step's 832->`frame_size` downscale, so Wan Animate receives a ref framed like
-the mannequin it follows. The master replaces the old fill-fit plus 1280
+canvas — `body_h * 832 / frame_size` px (382.9 at the default 704) — with its
+feet pinned to floor `floor_y(frame_size) * 832 / frame_size + 96` (716.45 at
+704) and the figure centred horizontally (x 416). Every other pixel is flat
+chroma green (CHROMA_GREEN). The 832 and 96 are the packaged animate
+workflow's reference mapping: it centre-crops the 832x1024 still to 832x832
+(rows 96-927, CROP_Y = (CANVAS_H - CANVAS_W) // 2) and scales it by
+`frame_size / 832`. Anchoring reproduces the drive-video geometry after that
+centre crop and downscale, so Wan Animate receives a ref framed like the
+mannequin it follows. The master replaces the old fill-fit plus 1280
 reference canvas: there is no 1280 canvas anymore.
 
 `dir_prompt` (FR 7) is the edit-workflow prompt for one direction: the view's
@@ -32,6 +35,9 @@ STILL_SIZE = (832, 1024)
 DRIVE_RES = 704
 CANVAS_W = 832
 CANVAS_H = 1024
+# the animate workflow's centre crop of the edit canvas to a square (FR 6,
+# amendment 9): rows CROP_Y .. CROP_Y + CANVAS_W - 1 (96-927) are kept
+CROP_Y = (CANVAS_H - CANVAS_W) // 2
 # the flat chroma background of an anchored master (FR 6)
 CHROMA_GREEN = (31, 203, 25)
 
@@ -69,26 +75,30 @@ def anchor_floor(floor_y, frame_size):
     """FR 6 + FR 14: the floor row in px of the anchored master on the
     832x1024 edit canvas for a 704-res `floor_y` and the drive `frame_size`:
     FR 14's drive rule shifts the 704-res floor by
-    `(max(frame_size, 704) - 704) // 2`, and the edit canvas maps it by
-    1024 / frame_size — 525 -> 763.6 at 704, 525 -> 685 at 1024."""
+    `(max(frame_size, 704) - 704) // 2`, and the animate workflow's mapping
+    (centre crop from row CROP_Y, then scale by frame_size / 832) is undone:
+    x 832 / frame_size + 96 — 525 -> 716.45 at 704, 525 -> 685 -> 652.56 at
+    1024."""
     canvas = max(int(frame_size), DRIVE_RES)
-    return metrics.floor_for_canvas(floor_y, canvas) * CANVAS_H / int(frame_size)
+    return (metrics.floor_for_canvas(floor_y, canvas) * CANVAS_W / int(frame_size)
+            + CROP_Y)
 
 
 def body_target(frame_size, profile=None):
-    """FR 6: the body height in px the anchored master measures on the
+    """FR 6 / FR 8: the body height in px the anchored master measures on the
     832x1024 edit canvas — the profile's `body_h` at the drive resolution
-    scaled by 1024 / frame_size (324 -> 471.3 at frame_size 704, 324 at
+    scaled by 832 / frame_size, the inverse of the animate workflow's
+    832 -> frame_size downscale (324 -> 382.9 at frame_size 704, 263.25 at
     1024)."""
     if profile is None:
         profile = next(iter(metrics.load_profiles().values()))
-    return profile["body_h"] * CANVAS_H / frame_size
+    return profile["body_h"] * CANVAS_W / frame_size
 
 
 def floor_line(frame_size, profile=None):
     """FR 6: the floor row in px of the anchored master on the 832x1024 edit
     canvas — `anchor_floor` of the profile's 704-res `floor_y`
-    (525 -> 763.6 at frame_size 704, 525 -> 685 at 1024)."""
+    (525 -> 716.45 at frame_size 704, 525 -> 652.56 at 1024)."""
     if profile is None:
         profile = next(iter(metrics.load_profiles().values()))
     return anchor_floor(profile["floor_y"], frame_size)

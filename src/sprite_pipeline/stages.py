@@ -356,14 +356,22 @@ def sprite_gen_cmds(*args):
 
 
 def pad_ref(src, dst, frame, canvas, log):
-    """Scale a still to frame x frame (as the animate workflow would) and
-    centre it on a canvas x canvas image filled with its top-left colour.
-    FR 6 retires the 1280 still canvas (`pad_still`); this remains for a
-    larger animation canvas, where the reference keeps its pixel size."""
+    """FR 10 (amendment 9): map a still to frame x frame the way the animate
+    workflow does (ImageScale crop=center: the longer side is cropped
+    symmetrically to a square, then the square is scaled to frame x frame,
+    so an 832x1024 still keeps rows 96-927), and centre it on a canvas x
+    canvas image filled with its top-left colour. FR 6 retires the 1280
+    still canvas (`pad_still`); this remains for a larger animation canvas,
+    where the reference keeps the mannequin's pixel size and aspect."""
     from PIL import Image
 
     frame, canvas = int(frame), int(canvas)
-    im = Image.open(src).convert("RGB").resize((frame, frame), Image.LANCZOS)
+    im = Image.open(src).convert("RGB")
+    w, h = im.size
+    # ComfyUI common_upscale's centre-crop offsets for a square target
+    x = round((w - h) / 2) if w > h else 0
+    y = round((h - w) / 2) if h > w else 0
+    im = im.crop((x, y, w - x, h - y)).resize((frame, frame), Image.LANCZOS)
     out = Image.new("RGB", (canvas, canvas), im.getpixel((0, 0)))
     off = (canvas - frame) // 2
     out.paste(im, (off, off))
