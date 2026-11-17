@@ -1,11 +1,57 @@
 {
-  "_comment": "Mannequin body-geometry profiles keyed by sha256 of the source GLB bytes (spec FR 14). Rendered A_TPose, facing s, elevation 45, at res 704 with the drive camera (ortho 3.0); body_h and floor_y are pixel values at that resolution and the body keeps its pixel size at larger canvases (drive rule), with the floor line shifted by (canvas-704)//2.",
+  "_comment": "Mannequin body-geometry profiles keyed by sha256 of the source GLB bytes (spec FR 14, amendment 10). Rendered A_TPose at res 704 with the drive camera (ortho 3.0, elevation 45, head lift 25, default rig), once per isometric direction s, se, e, ne, n; body_h and floor_y are pixel values at that resolution, measured from tests/fixtures/mannequin_tpose_<female|male>_<dir>_704.png. The body keeps its pixel size at larger canvases (drive rule), with the floor line shifted by (canvas-704)//2.",
   "profiles": {
     "b97d76c65bd2805e1b04d049fd42cbb9268018f24678858fdafa6891b3f2ddf4": {
-      "glb_name": "ual-female.glb", "resolution": 704, "body_h": 324, "floor_y": 525
+      "glb_name": "ual-female.glb",
+      "resolution": 704,
+      "dirs": {
+        "s": {
+          "body_h": 331,
+          "floor_y": 524
+        },
+        "se": {
+          "body_h": 367,
+          "floor_y": 532
+        },
+        "e": {
+          "body_h": 399,
+          "floor_y": 533
+        },
+        "ne": {
+          "body_h": 354,
+          "floor_y": 534
+        },
+        "n": {
+          "body_h": 306,
+          "floor_y": 524
+        }
+      }
     },
     "1b7bf67866360665426bb99e4c71bd619f19b408453c24e30f0c3071601eee5c": {
-      "glb_name": "ual.glb", "resolution": 704, "body_h": 345, "floor_y": 538
+      "glb_name": "ual.glb",
+      "resolution": 704,
+      "dirs": {
+        "s": {
+          "body_h": 354,
+          "floor_y": 536
+        },
+        "se": {
+          "body_h": 394,
+          "floor_y": 539
+        },
+        "e": {
+          "body_h": 420,
+          "floor_y": 528
+        },
+        "ne": {
+          "body_h": 363,
+          "floor_y": 526
+        },
+        "n": {
+          "body_h": 308,
+          "floor_y": 518
+        }
+      }
     }
   }
 }
