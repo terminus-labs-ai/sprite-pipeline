@@ -5,15 +5,19 @@
                        [--dirs s,se] [--stage drive|animate|key|loop|pixel|export]
                        [--reroll <char>:<dir>=<seed>] [--no-stop] [--force] [--dry-run]
     sprite-pipeline approve <project.yaml> <character>
+    sprite-pipeline mannequin-profile <glb>
 
-Per character: prepare the still (pad, then key the SE still for the palette),
-then run the edit workflow once per generated direction other than the still's
-own, with the view's turn prompt in the character's pronoun (FR 6, FR 7); each
-step is skip-if-exists unless --force or --reroll names it. `approve` writes
+Per character: prepare the still (anchor it to the mannequin profile on the
+832x1024 edit canvas, then key the `s` master for the palette), then run the
+edit workflow once per generated direction other than the still's own, with
+the view's turn prompt in the character's pronoun (FR 6, FR 7); each step is
+skip-if-exists unless --force or --reroll names it. `approve` writes
 refs.approved (hash of the direction stills); the review stop (FR 8) keeps the
 character's animation stages away until that hash matches, --no-stop skips the
-stop for one run. Exit codes: 0 done or stopped for review, 1 a stage failed,
-2 the project file is invalid.
+stop for one run. `mannequin-profile` renders a GLB's A_TPose at 704 with the
+drive camera, measures it and writes its profile to the host profile file
+(FR 14). Exit codes: 0 done or stopped for review, 1 a stage failed, 2 the
+project file is invalid.
 """
 import argparse
 from pathlib import Path
