@@ -14,6 +14,7 @@ bone. No Blender.
 """
 import dataclasses
 import io
+import math
 import runpy
 import sys
 import tempfile
@@ -306,6 +307,24 @@ class TestRenderDriveArmDrop(unittest.TestCase):
         for bone in ("DEF-forearm.L", "DEF-forearm.R", "DEF-thigh.L", "DEF-thigh.R"):
             with self.subTest(bone=bone):
                 self.assertTrue(_untouched(fcs[bone]))
+
+    def test_r5_arm_drop_rotates_about_local_z_with_the_planned_signs(self):
+        # the tilt applied to each upper arm is about the bone's local Z axis,
+        # L by -45 deg and R by +45 deg (a local X tilt raises one arm)
+        tilts = []
+
+        class _Recording(_Quaternion):
+            def __init__(self, *a):
+                super().__init__(*a)
+                if self.tilt is not None:
+                    tilts.append(self.tilt)
+
+        with mock.patch(f"{__name__}._Quaternion", _Recording):
+            fcs, out, err, exc = _run_render_drive(self.PLANNED + ["--arm-drop", "45"],
+                                                   ALL_BONES)
+        self.assertIsNone(exc, err)
+        self.assertEqual(sorted(set(tilts)),
+                         [((0, 0, 1), math.radians(-45)), ((0, 0, 1), math.radians(45))])
 
     def test_r5_arm_drop_with_the_head_pitch(self):
         # the mannequin render's actual shape: pitch and drop together —

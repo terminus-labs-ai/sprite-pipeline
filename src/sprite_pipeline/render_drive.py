@@ -35,9 +35,9 @@ def rotation_fcurves(act, bone):
     if len(fcs) != 4:
         sys.exit(f"render_drive: bone {bone!r} has no rotation_quaternion fcurves on action {act.name!r}")
     return sorted(fcs, key=lambda f: f.array_index)
-def pitch_bone(fcs, deg):
+def pitch_bone(fcs, deg, axis=(1, 0, 0)):
     from mathutils import Quaternion
-    tilt = Quaternion((1, 0, 0), math.radians(deg))
+    tilt = Quaternion(axis, math.radians(deg))
     for k in range(len(fcs[0].keyframe_points)):
         q = Quaternion([f.keyframe_points[k].co[1] for f in fcs]) @ tilt
         for i, f in enumerate(fcs): f.keyframe_points[k].co[1] = q[i]
@@ -47,10 +47,10 @@ if head_pitch:
     pitch_bone(neck, -head_pitch / 2); pitch_bone(head, -head_pitch / 2)
 if arm_drop:
     # the A-pose (amendment 13): the arms lower about the bone's local Z axis
-    # (left arm -deg, right arm +deg), the same right-multiply pitch_bone uses
+    # (left arm -deg, right arm +deg), right-multiplied like the head pitch
     # (rotation_fcurves exits naming the bone when it has no rotation fcurves)
     for bone, angle in (("DEF-upper_arm.L", -arm_drop), ("DEF-upper_arm.R", arm_drop)):
-        pitch_bone(rotation_fcurves(act, bone), angle)
+        pitch_bone(rotation_fcurves(act, bone), angle, axis=(0, 0, 1))
 root = rig
 while root.parent: root = root.parent
 root.rotation_mode = "XYZ"; root.rotation_euler[2] += math.radians(facing)
