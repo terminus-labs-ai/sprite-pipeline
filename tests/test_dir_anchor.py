@@ -29,6 +29,7 @@ import numpy
 from PIL import Image
 
 import mannequins
+from prompt_text import GUIDE_LINE
 from test_review import EDIT_DIRS, FakeRun, ReviewFixture
 
 from sprite_pipeline import metrics, stills
@@ -44,21 +45,6 @@ TARGET = {"s": (331 * 832 / 704, 524 * 832 / 704 + 96),
 ALL_DIRS = ["s", "se", "e", "ne", "n"]
 CENTRE_X = 416
 EDIT_BG = (10, 200, 10)
-GUIDE_LINE = {
-    "he": ("Image 2 is a plain grey mannequin used only as a guide: draw him in "
-           "exactly the mannequin's pose, facing direction, size and position in the "
-           "frame, with his feet exactly where the mannequin's feet are and his arms "
-           "held out like the mannequin's. Do not draw the mannequin itself."),
-    "she": ("Image 2 is a plain grey mannequin used only as a guide: draw her in "
-            "exactly the mannequin's pose, facing direction, size and position in the "
-            "frame, with her feet exactly where the mannequin's feet are and her arms "
-            "held out like the mannequin's. Do not draw the mannequin itself."),
-    "they": ("Image 2 is a plain grey mannequin used only as a guide: draw them in "
-             "exactly the mannequin's pose, facing direction, size and position in "
-             "the frame, with their feet exactly where the mannequin's feet are and "
-             "their arms held out like the mannequin's. Do not draw the mannequin "
-             "itself."),
-}
 
 
 def png_bytes(im):

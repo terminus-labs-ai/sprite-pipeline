@@ -179,9 +179,9 @@ def _print_still_plan(proj, ctx, char, reroll, force, out):
             redo = (force or reroll.get(d) is not None
                     or not dst.is_file() or (d != "s" and s_redo))
             edit = "edit" if redo else "skip"
-            guide = master / f"{d}.guide.png"
-            raw = master / f"{d}.edit.png"
-            src = "the anchored still" if d == "s" else "the guided master"
+            guide = ctx.guide_file(char, d)
+            raw = ctx.edit_file(char, d)
+            src ="the anchored still" if d == "s" else "the guided master"
             print(f"[{char}/{d}] guide ({'place' if redo else 'skip'}): mannequin A-pose of "
                   f"{proj.animations[0].source.name} facing {d} (blender, cached in "
                   f"motion_cache) -> {guide}", file=out)
@@ -206,10 +206,9 @@ def _guided_edit(ctx, turn, cs, profile, char, d, ref, seed, log, out):
     every other direction (amendment 12). Returns False on a failed
     guide render, edit or re-anchor."""
     p = ctx.project
-    master = ctx.master(char)
-    guide = master / f"{d}.guide.png"
-    raw = master / f"{d}.edit.png"
-    dst = ctx.dir_still(char, d)
+    guide = ctx.guide_file(char, d)
+    raw = ctx.edit_file(char, d)
+    dst =ctx.dir_still(char, d)
     try:
         render = render_mannequin(p.animations[0].source, d, cached=True)
         stills.guide(render, guide, p.sprite.frame_size, profile, d)
@@ -292,7 +291,7 @@ def run_stills(ctx, turn, char, reroll, force, log, out, no_stop=False):
                 # `s.png`, a `--no-stop` run) deletes nothing.
                 for other in s_dirs:
                     for f in (ctx.dir_still(char, other),
-                              master / f"{other}.edit.png"):
+                              ctx.edit_file(char, other)):
                         f.unlink(missing_ok=True)
             if s_redo or not keyed.is_file():
                 cmds = stages.plan_cutout(dst, master)
@@ -654,7 +653,7 @@ def _go(args, out, load_kwargs=None):
                 flag = " CHECK" if note.endswith("CHECK") else ""
                 print(f"[{char}/s] ref size {size}{flag}", file=out)
                 panels = [(ctx.master(char) / "still.png", "anchored still"),
-                          (ctx.master(char) / "s.guide.png", "s guide"),
+                          (ctx.guide_file(char, "s"), "s guide"),
                           (ctx.dir_still(char, "s"), f"s {note}")]
                 panels = [(p, l) for p, l in panels if p.is_file()]
                 stills.review_sheet([p for p, _ in panels], sheet,
