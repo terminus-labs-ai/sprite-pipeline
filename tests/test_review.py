@@ -30,6 +30,7 @@ import yaml
 from PIL import Image
 
 import mannequins
+from prompt_text import GUIDE_LINE
 
 from sprite_pipeline import cli, config, project, stages, stills
 
@@ -59,12 +60,8 @@ POS = {"he": "his", "she": "her", "they": "their"}
 
 def guide_line(pronoun):
     """FR 7 (amendment 10): the guide line ending every direction edit's
-    prompt, worded in the pronoun; the spec's text, stated here verbatim."""
-    obj, pos = OBJ[pronoun], POS[pronoun]
-    return (f"Image 2 is a plain grey mannequin used only as a guide: draw {obj} in "
-            f"exactly the mannequin's pose, facing direction, size and position in the "
-            f"frame, with {pos} feet exactly where the mannequin's feet are and {pos} "
-            f"arms held out like the mannequin's. Do not draw the mannequin itself.")
+    prompt, worded in the pronoun (tests/prompt_text.py)."""
+    return GUIDE_LINE[pronoun]
 
 
 def expected_prompt(turn, d, pronoun):

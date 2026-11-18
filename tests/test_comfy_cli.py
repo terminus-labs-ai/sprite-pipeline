@@ -38,6 +38,7 @@ import yaml
 from PIL import Image
 
 import mannequins
+from prompt_text import GUIDE_LINE
 
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = ROOT / "examples" / "isometric"
@@ -69,11 +70,7 @@ def expected_prompt(turn, d, pronoun):
             f"mannequin in image 2, looking down at {obj} at about 45 degrees, "
             f"but now "
             + turn[d].format(obj=obj, pos=pos) + "." + TAIL
-            + f" Image 2 is a plain grey mannequin used only as a guide: draw {obj} "
-            f"in exactly the mannequin's pose, facing direction, size and position "
-            f"in the frame, with {pos} feet exactly where the mannequin's feet are "
-            f"and {pos} arms held out like the mannequin's. Do not draw the "
-            f"mannequin itself.")
+            + " " + GUIDE_LINE[pronoun])
 
 
 def standing_png():

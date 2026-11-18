@@ -84,6 +84,12 @@ class StageCtx:
     def dir_still(self, char, d):
         return self.master(char) / f"{d}.png"
 
+    def guide_file(self, char, d):
+        return self.master(char) / f"{d}.guide.png"
+
+    def edit_file(self, char, d):
+        return self.master(char) / f"{d}.edit.png"
+
     def clip(self, char, anim, d):
         return self.project.output_root() / char / "clips" / f"{anim.name}-{d}.mp4"
 
@@ -220,7 +226,7 @@ class StageCtx:
         canvas (`stills.body_target`; the `s` master by the FR 6 target),
         rounded to two decimals. None when there is no figure to measure: the
         report is advisory and never raises."""
-        raw = self.master(char) / f"{d}.edit.png"
+        raw = self.edit_file(char, d)
         try:
             body_h = metrics.measure(raw if raw.is_file()
                                      else self.dir_still(char, d))["body_h"]
@@ -398,9 +404,7 @@ def pad_ref(src, dst, frame, canvas, log):
     frame, canvas = int(frame), int(canvas)
     im = Image.open(src).convert("RGB")
     w, h = im.size
-    # ComfyUI common_upscale's centre-crop offsets for a square target
-    x = round((w - h) / 2) if w > h else 0
-    y = round((h - w) / 2) if h > w else 0
+    x, y = stills.centre_crop(w, h)
     im = im.crop((x, y, w - x, h - y)).resize((frame, frame), Image.LANCZOS)
     out = Image.new("RGB", (canvas, canvas), im.getpixel((0, 0)))
     off = (canvas - frame) // 2

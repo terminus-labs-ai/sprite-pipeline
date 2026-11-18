@@ -48,7 +48,17 @@ CANVAS_W = 832
 CANVAS_H = 1024
 # the animate workflow's centre crop of the edit canvas to a square (FR 6,
 # amendment 9): rows CROP_Y .. CROP_Y + CANVAS_W - 1 (96-927) are kept
-CROP_Y = (CANVAS_H - CANVAS_W) // 2
+
+
+def centre_crop(w: int, h: int) -> tuple[int, int]:
+    """FR 6/FR 10 (amendment 9): the (x, y) offsets ComfyUI's `crop: center`
+    (common_upscale) cuts from a w x h image to make it square: the longer
+    side is cropped symmetrically."""
+    return (round((w - h) / 2) if w > h else 0,
+            round((h - w) / 2) if h > w else 0)
+
+
+CROP_Y = centre_crop(CANVAS_W, CANVAS_H)[1]
 # the flat chroma background of an anchored master (FR 6)
 CHROMA_GREEN = (31, 203, 25)
 
