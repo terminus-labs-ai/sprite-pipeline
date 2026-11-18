@@ -18,13 +18,14 @@ import hashlib
 from PIL import Image
 
 # the canonical test mannequin at resolution 704: the packaged ual-female.glb
-# per-direction values (FR 14, amendment 10), body_h / floor_y per direction;
-# BODY_H / FLOOR_Y are its `s` (master) values, 331 / 524
+# per-direction values (FR 14, amendments 10 and 13: the mannequin A-pose),
+# body_h / floor_y per direction; BODY_H / FLOOR_Y are its `s` (master)
+# values, 331 / 524
 DIRS = {
     "s": {"body_h": 331, "floor_y": 524},
-    "se": {"body_h": 367, "floor_y": 532},
-    "e": {"body_h": 399, "floor_y": 533},
-    "ne": {"body_h": 354, "floor_y": 534},
+    "se": {"body_h": 331, "floor_y": 532},
+    "e": {"body_h": 325, "floor_y": 533},
+    "ne": {"body_h": 318, "floor_y": 534},
     "n": {"body_h": 306, "floor_y": 524},
 }
 BODY_H = DIRS["s"]["body_h"]

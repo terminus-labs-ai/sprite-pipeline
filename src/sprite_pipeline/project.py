@@ -83,6 +83,7 @@ class Animation:
     pre: int = 1
     post: int = 0
     look_down: bool = False
+    arm_drop: int = 0      # degrees both upper arms are lowered (the mannequin A-pose); never read from YAML
     state: str = "attack"
     seam_max: float = 0.0
     directions: list = field(default_factory=list)
@@ -146,7 +147,8 @@ class Project:
              "repeats": anim.repeats, "pre": anim.pre, "post": anim.post,
              "head_lift": anim.head_lift, "rig": {"neck": self.rig["neck"], "head": self.rig["head"]},
              "elev": DRIVE_ELEV, "frame_size": self.sprite.frame_size,
-             **({"canvas": anim.canvas} if anim.canvas and anim.canvas != self.sprite.frame_size else {})},
+             **({"canvas": anim.canvas} if anim.canvas and anim.canvas != self.sprite.frame_size else {}),
+             **({"arm_drop": anim.arm_drop} if anim.arm_drop else {})},
             sort_keys=True)
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
 

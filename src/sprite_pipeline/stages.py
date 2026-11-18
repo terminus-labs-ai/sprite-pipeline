@@ -31,6 +31,11 @@ SIZE_CHECK_LOW = 0.85
 SIZE_CHECK_HIGH = 1.15
 
 FACING = {"s": 0, "se": 45, "e": 90, "ne": 135, "n": 180}
+# the mannequin A-pose (amendment 13, dec: dec-799): degrees the mannequin
+# render (the FR 7 guide and `mannequin-profile`) lowers both upper arms.
+# A package constant used only by that render — not a project key, and
+# animation drives never carry it.
+MANNEQUIN_ARM_DROP = 45
 MIRROR_OF = {"sw": "se", "w": "e", "nw": "ne"}
 EIGHT_DIRS = ["n", "ne", "e", "se", "s", "sw", "w", "nw"]
 PAIR_STAGES = ["drive", "animate", "key", "loop"]
@@ -261,6 +266,9 @@ class StageCtx:
             if anim.head_lift:
                 # the bone names ride only with the pitch (FR 3, rig.neck/rig.head)
                 argv += [str(anim.head_lift), "--neck", p.rig["neck"], "--head", p.rig["head"]]
+            if anim.arm_drop:
+                # the A-pose drop rides only with the mannequin render (amendment 13)
+                argv += ["--arm-drop", str(anim.arm_drop)]
             if anim.canvas and anim.canvas != p.sprite.frame_size:
                 # a larger canvas widens the camera by the same ratio, so the
                 # mannequin keeps its pixel size and gains room around it

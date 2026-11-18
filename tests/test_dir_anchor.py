@@ -39,7 +39,7 @@ GREEN = (31, 203, 25)
 # dirs.<d>.body_h x 832 / 704 and dirs.<d>.floor_y x 832 / 704 + 96 over the
 # stub profile (mannequins.DIRS)
 TARGET = {"s": (331 * 832 / 704, 524 * 832 / 704 + 96),
-          "se": (433.7, 724.7), "e": (471.5, 725.9), "ne": (418.4, 727.1),
+          "se": (391.2, 724.7), "e": (384.4, 725.9), "ne": (375.6, 727.1),
           "n": (361.6, 715.3)}
 ALL_DIRS = ["s", "se", "e", "ne", "n"]
 CENTRE_X = 416
@@ -191,7 +191,7 @@ def grey_render(bg, fig, body_h, floor_y, centre_x=300, res=704):
 
 class TestGuidePlacement(GuidedFixture):
     """AC18-r2: a synthetic grey mannequin render for e places as
-    `master/e.guide.png` — 832x1024 on chroma green, body 471.5 ± 1, floor
+    `master/e.guide.png` — 832x1024 on chroma green, body 384.4 ± 1, floor
     725.9 ± 1, centre x 416 ± 1 — both through `stills.guide` and through a
     `go` run's real render path (Blender faked). AC18-r3: a figure only 6
     levels off its grey background pastes whole."""
@@ -199,8 +199,8 @@ class TestGuidePlacement(GuidedFixture):
     def test_ac18_r2_guide_from_a_grey_render_measures_the_e_target(self):
         with tempfile.TemporaryDirectory() as tmp:
             render = Path(tmp) / "render.png"
-            # the stub e mannequin: 399 px, feet on 533 at 704
-            grey_render((128, 128, 128), (90, 90, 90), 399, 533).save(render)
+            # the stub e mannequin: 325 px, feet on 533 at 704
+            grey_render((128, 128, 128), (90, 90, 90), 325, 533).save(render)
             dst = Path(tmp) / "e.guide.png"
             self.assertEqual(stills.guide(render, dst, 704, mannequins.profile(), "e"), dst)
             self.assert_on_target(dst, "e")
@@ -219,17 +219,17 @@ class TestGuidePlacement(GuidedFixture):
     def test_ac18_r3_a_figure_6_levels_off_pastes_whole(self):
         with tempfile.TemporaryDirectory() as tmp:
             render = Path(tmp) / "render.png"
-            grey_render((120, 120, 120), (126, 126, 126), 399, 533).save(render)
+            grey_render((120, 120, 120), (126, 126, 126), 325, 533).save(render)
             dst = Path(tmp) / "e.guide.png"
             stills.guide(render, dst, 704, mannequins.profile(), "e")
             self.assert_on_target(dst, "e")
             arr = numpy.asarray(Image.open(dst).convert("RGB"))
             green = (arr == GREEN).all(axis=2)
-            # the torso column, placed: scale 471.5 / 399, centred on 416,
+            # the torso column, placed: scale 384.4 / 399, centred on 416,
             # rows from the top of the figure to the floor; 2 px inside its
             # edges no pixel is left green
             m = metrics.measure(dst)
-            half = round(40 * 471.5 / 399)
+            half = round(40 * 384.4 / 399)
             top = m["floor_y"] - m["body_h"] + 1
             inner = green[top + 2:m["floor_y"] - 1, 416 - half + 2:416 + half - 2]
             self.assertGreater(inner.size, 0)
@@ -251,10 +251,10 @@ FIXTURES = ROOT / "tests" / "fixtures"
 # FR 14's packaged (body_h, floor_y) per GLB and direction at 704, stated
 # independently of the packaged file
 FR14 = {
-    "ual-female.glb": {"s": (331, 524), "se": (367, 532), "e": (399, 533),
-                       "ne": (354, 534), "n": (306, 524)},
-    "ual.glb": {"s": (354, 536), "se": (394, 539), "e": (420, 528),
-                "ne": (363, 526), "n": (308, 518)},
+    "ual-female.glb": {"s": (331, 524), "se": (331, 532), "e": (325, 533),
+                       "ne": (318, 534), "n": (306, 524)},
+    "ual.glb": {"s": (354, 536), "se": (350, 539), "e": (328, 528),
+                "ne": (320, 526), "n": (308, 518)},
 }
 FIXTURE_GLB = {"female": "ual-female.glb", "male": "ual.glb"}
 
@@ -296,7 +296,7 @@ class TestGuideHolesFilled(unittest.TestCase):
                 profile = next(p for p in pkg.values() if p["glb_name"] == glb)
                 for d, (body_h, floor_y) in FR14[glb].items():
                     with self.subTest(glb=glb, d=d):
-                        render = FIXTURES / f"mannequin_tpose_{sex}_{d}_704.png"
+                        render = FIXTURES / f"mannequin_apose_{sex}_{d}_704.png"
                         dst = Path(tmp) / f"{sex}_{d}.guide.png"
                         stills.guide(render, dst, 704, profile, d)
                         arr = numpy.asarray(Image.open(dst).convert("RGB"))
@@ -314,22 +314,23 @@ class TestGuideHolesFilled(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             render = Path(tmp) / "render.png"
             # the stub e mannequin (399 px, feet on 533, torso x 260-339)
-            # with a 30x30 patch of exactly the background colour inside the
-            # torso: source x 285-314, rows 300-329
+            # with a 60x60 patch of exactly the background colour inside the
+            # torso, below the arms' band (rows 195-224): source x 270-330,
+            # rows 250-310
             im = grey_render(bg, fig, 399, 533)
-            im.paste(bg, (285, 300, 315, 330))
+            im.paste(bg, (270, 250, 330, 310))
             im.save(render)
             dst = Path(tmp) / "e.guide.png"
             stills.guide(render, dst, 704, mannequins.profile(), "e")
             arr = numpy.asarray(Image.open(dst).convert("RGB"))
             self.assertEqual(enclosed_green(arr), 0)
-            # the patch, placed: scale 471.5 / 399 about the torso's centre x
+            # the patch, placed: scale 384.4 / 399 about the torso's centre x
             # (299.5 -> 416) and feet row (533 -> the guide's floor)
             m = metrics.measure(dst)
             s = TARGET["e"][0] / 399
-            x0, x1 = round(416 + (285 - 299.5) * s), round(416 + (315 - 299.5) * s)
-            y0 = round(m["floor_y"] - (533 - 300) * s)
-            y1 = round(m["floor_y"] - (533 - 330) * s)
+            x0, x1 = round(416 + (270 - 299.5) * s), round(416 + (330 - 299.5) * s)
+            y0 = round(m["floor_y"] - (533 - 250) * s)
+            y1 = round(m["floor_y"] - (533 - 310) * s)
             patch = arr[y0:y1, x0:x1]
             self.assertGreater(patch.shape[0] * patch.shape[1], 30 * 30)
             self.assertFalse((patch == GREEN).all(axis=2).any(),

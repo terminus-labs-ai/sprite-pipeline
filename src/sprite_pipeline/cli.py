@@ -18,7 +18,8 @@ mannequin (FR 6, FR 7); each step is skip-if-exists unless --force or
 (`s.approved`, the sha256 of `master/s.png`) before the other directions are
 edited from it, then the full stop (refs.approved, the hash of the direction
 stills); --no-stop skips both for one run. `mannequin-profile` renders a
-GLB's A_TPose at 704 with the drive camera facing each of s, se, e, ne, n,
+GLB's mannequin A-pose (A_TPose, --arm-drop 45) at 704 with the drive camera
+facing each of s, se, e, ne, n,
 measures each and writes its per-direction profile to the host profile file
 (FR 14). Exit codes: 0 done or stopped for review, 1 a stage failed, 2 the
 project file is invalid.
@@ -181,7 +182,7 @@ def _print_still_plan(proj, ctx, char, reroll, force, out):
             guide = master / f"{d}.guide.png"
             raw = master / f"{d}.edit.png"
             src = "the anchored still" if d == "s" else "the guided master"
-            print(f"[{char}/{d}] guide ({'place' if redo else 'skip'}): A_TPose of "
+            print(f"[{char}/{d}] guide ({'place' if redo else 'skip'}): mannequin A-pose of "
                   f"{proj.animations[0].source.name} facing {d} (blender, cached in "
                   f"motion_cache) -> {guide}", file=out)
             print(f"[{char}/{d}] direction edit ({edit}): {proj.workflows['edit']} on "
@@ -197,7 +198,7 @@ def _print_still_plan(proj, ctx, char, reroll, force, out):
 
 def _guided_edit(ctx, turn, cs, profile, char, d, ref, seed, log, out):
     """FR 7: one direction's guide, edit and re-anchor — the guide (the
-    anchor GLB's A_TPose rendered facing `d`, cached in motion_cache,
+    anchor GLB's mannequin A-pose rendered facing `d`, cached in motion_cache,
     placed at the direction's target as `master/<d>.guide.png`), the edit
     on `ref` with that guide (raw output `master/<d>.edit.png`) and the
     re-anchor to `master/<d>.png`. `ref` is the anchored still
@@ -383,12 +384,14 @@ def cmd_approve(args, out, **load_kwargs):
 
 
 def render_mannequin(glb, d="s", cached=False):
-    """Render the GLB's `A_TPose` at the drive resolution 704 with the drive
-    camera facing `d` (`stages.FACING[d]`, elevation 45°, ortho 3.0 — the
-    same camera and scene the drive plan uses). Returns the path of the
-    rendered frame, which lives in the configured motion_cache keyed like a
-    drive (GLB bytes, action, drive params). With `cached`, an existing
-    render is returned without running Blender (FR 7's guide render).
+    """Render the GLB's mannequin A-pose — its `A_TPose` action with both
+    upper arms lowered by `stages.MANNEQUIN_ARM_DROP` (amendment 13) — at the
+    drive resolution 704 with the drive camera facing `d`
+    (`stages.FACING[d]`, elevation 45°, ortho 3.0 — the same camera and scene
+    the drive plan uses). Returns the path of the rendered frame, which lives
+    in the configured motion_cache keyed like a drive (GLB bytes, action,
+    drive params including the arm drop). With `cached`, an existing render
+    is returned without running Blender (FR 7's guide render).
     Needs Blender and the host config (FR 14)."""
     from PIL import Image
 
@@ -406,8 +409,11 @@ def render_mannequin(glb, d="s", cached=False):
                                   rig={"neck": "DEF-neck", "head": "DEF-head"},
                                   workflows={}, characters=[], animations=[]),
                           config.load())
+    # the mannequin A-pose (amendment 13): the A_TPose action with both
+    # upper arms lowered by the package constant
     anim = project.Animation(name="A_TPose", source=Path(glb), action="A_TPose",
-                             frames=1, loop=False, prompt="")
+                             frames=1, loop=False, prompt="",
+                             arm_drop=stages.MANNEQUIN_ARM_DROP)
     # the plan's own frames dir: where the blender step writes, and where the
     # measurement reads back. The plan's copy_file step (the mp4 upload to
     # ComfyUI's input/) is dropped here — the render keeps its own frames and
@@ -436,7 +442,8 @@ def render_mannequin(glb, d="s", cached=False):
 
 def cmd_mannequin_profile(args, out):
     """`sprite-pipeline mannequin-profile <glb>` (FR 14, amendments 4 and 10):
-    render the GLB's A_TPose at 704 with the drive camera facing each of s,
+    render the GLB's mannequin A-pose (A_TPose, --arm-drop 45; amendment 13)
+    at 704 with the drive camera facing each of s,
     se, e, ne, n, measure each and append one entry with `dirs` to the host
     profile file, replacing an existing entry for the same hash. Prints the
     measured JSON. Every direction is rendered before anything is written: a
@@ -497,7 +504,7 @@ def main(argv=None, out=None, **load_kwargs):
     p = sub.add_parser("approve", help="approve a character's direction stills")
     p.add_argument("approve_args", nargs=argparse.REMAINDER)
     mp = sub.add_parser("mannequin-profile",
-                        help="render + measure a GLB's A_TPose at 704 in the five "
+                        help="render + measure a GLB's mannequin A-pose at 704 in the five "
                              "isometric directions and append its mannequin "
                              "profile to the host profile file")
     mp.add_argument("glb", help="path to the source .glb")

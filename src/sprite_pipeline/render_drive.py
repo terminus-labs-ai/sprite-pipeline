@@ -1,13 +1,16 @@
-"""Render a Quaternius UAL action on its mannequin from an isometric camera. Args after --: glb action out_dir facing_deg elev_deg repeats pre post [head_pitch_deg] [--neck NAME] [--head NAME]. head_pitch > 0 lifts the chin (split between the neck and head bones, default DEF-neck and DEF-head); a named bone without rotation fcurves on the action is an error."""
+"""Render a Quaternius UAL action on its mannequin from an isometric camera. Args after --: glb action out_dir facing_deg elev_deg repeats pre post [head_pitch_deg] [--neck NAME] [--head NAME] [--arm-drop DEG]. head_pitch > 0 lifts the chin (split between the neck and head bones, default DEF-neck and DEF-head); a named bone without rotation fcurves on the action is an error. --arm-drop DEG lowers both upper arms (DEF-upper_arm.L by -DEG, DEF-upper_arm.R by +DEG, about the bone's local Z axis); an upper-arm bone without rotation fcurves on the action is an error."""
 import bpy, math, sys
 from mathutils import Vector
 args = sys.argv[sys.argv.index("--") + 1:]
-bones, rest = {"--neck": "DEF-neck", "--head": "DEF-head"}, []
+bones, rest, arm_drop = {"--neck": "DEF-neck", "--head": "DEF-head"}, [], 0.0
 while args:
     x = args.pop(0)
     if x in bones:
         if not args: sys.exit(f"render_drive: {x} needs a bone name")
         bones[x] = args.pop(0)
+    elif x == "--arm-drop":
+        if not args: sys.exit("render_drive: --arm-drop needs degrees")
+        arm_drop = float(args.pop(0))
     else:
         rest.append(x)
 args = rest
@@ -27,9 +30,10 @@ rig.animation_data_create(); rig.animation_data.action = act
 if hasattr(rig.animation_data, "action_slot") and act.slots:
     rig.animation_data.action_slot = act.slots[0]
 def rotation_fcurves(act, bone):
-    fcs = [f for f in act.layers[0].strips[0].channelbags[0].fcurves if f.data_path == f'pose.bones["{bone}"].rotation_quaternion']
+    fcs = [f for bag in act.layers[0].strips[0].channelbags
+           for f in bag.fcurves if f.data_path == f'pose.bones["{bone}"].rotation_quaternion']
     if len(fcs) != 4:
-        sys.exit(f"render_drive: bone {bone!r} has no rotation_quaternion fcurves on action {act.name!r}; set rig: in project.yaml")
+        sys.exit(f"render_drive: bone {bone!r} has no rotation_quaternion fcurves on action {act.name!r}")
     return sorted(fcs, key=lambda f: f.array_index)
 def pitch_bone(fcs, deg):
     from mathutils import Quaternion
@@ -41,6 +45,12 @@ def pitch_bone(fcs, deg):
 if head_pitch:
     neck, head = rotation_fcurves(act, bones["--neck"]), rotation_fcurves(act, bones["--head"])
     pitch_bone(neck, -head_pitch / 2); pitch_bone(head, -head_pitch / 2)
+if arm_drop:
+    # the A-pose (amendment 13): the arms lower about the bone's local Z axis
+    # (left arm -deg, right arm +deg), the same right-multiply pitch_bone uses
+    # (rotation_fcurves exits naming the bone when it has no rotation fcurves)
+    for bone, angle in (("DEF-upper_arm.L", -arm_drop), ("DEF-upper_arm.R", arm_drop)):
+        pitch_bone(rotation_fcurves(act, bone), angle)
 root = rig
 while root.parent: root = root.parent
 root.rotation_mode = "XYZ"; root.rotation_euler[2] += math.radians(facing)

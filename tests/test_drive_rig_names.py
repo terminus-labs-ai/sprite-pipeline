@@ -158,7 +158,7 @@ class TestRenderDriveBones(unittest.TestCase):
                 text = _exit_text(exc, err)
                 self.assertIn(missing, text)
                 self.assertIn("Jog_Fwd_Loop", text)
-                self.assertIn("set rig: in project.yaml", text)
+                self.assertIn("rotation_quaternion", text)
                 # it stops before touching any keyframe and before rendering
                 for b in present:
                     self.assertTrue(_untouched(fcs[b]), b)

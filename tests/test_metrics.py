@@ -26,10 +26,10 @@ DIRS = ("s", "se", "e", "ne", "n")
 # FR 14's measured values, stated independently of the packaged file:
 # (body_h, floor_y) per GLB and direction at 704
 FR14 = {
-    "ual-female.glb": {"s": (331, 524), "se": (367, 532), "e": (399, 533),
-                       "ne": (354, 534), "n": (306, 524)},
-    "ual.glb": {"s": (354, 536), "se": (394, 539), "e": (420, 528),
-                "ne": (363, 526), "n": (308, 518)},
+    "ual-female.glb": {"s": (331, 524), "se": (331, 532), "e": (325, 533),
+                       "ne": (318, 534), "n": (306, 524)},
+    "ual.glb": {"s": (354, 536), "se": (350, 539), "e": (328, 528),
+                "ne": (320, 526), "n": (308, 518)},
 }
 
 
@@ -81,7 +81,7 @@ class TestMeasure(unittest.TestCase):
         for d in DIRS:
             want_h, want_floor = FR14[glb_name][d]
             with self.subTest(glb=glb_name, d=d):
-                m = metrics.measure(FIXTURES / f"mannequin_tpose_{sex}_{d}_704.png")
+                m = metrics.measure(FIXTURES / f"mannequin_apose_{sex}_{d}_704.png")
                 self.assertAlmostEqual(m["body_h"], want_h, delta=2)
                 self.assertAlmostEqual(m["floor_y"], want_floor, delta=2)
                 self.assertEqual(packaged["dirs"][d],
@@ -105,7 +105,7 @@ class TestMeasure(unittest.TestCase):
         """AC14-r2: a 1152 frame built to the drive rule from the female `s`
         render (the 704 frame pasted with everything shifted +224, the body at
         its own pixel size) measures body 331 +/- 2 and floor 748 +/- 2."""
-        src = Image.open(FIXTURES / "mannequin_tpose_female_s_704.png").convert("RGB")
+        src = Image.open(FIXTURES / "mannequin_apose_female_s_704.png").convert("RGB")
         with tempfile.TemporaryDirectory() as tmp:
             im = Image.new("RGB", (1152, 1152), src.getpixel((0, 0)))
             im.paste(src, ((1152 - 704) // 2, (1152 - 704) // 2))

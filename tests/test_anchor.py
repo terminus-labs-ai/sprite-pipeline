@@ -66,9 +66,10 @@ CHROMA = (31, 203, 25)
 # geometry (FR 14, amendment 10)
 FRAME = 704
 BODY_H, FLOOR_Y = 331, 524
-# the packaged male mannequin's per-direction geometry (ual.glb, FR 14)
-MALE_DIRS = {"s": {"body_h": 354, "floor_y": 536}, "se": {"body_h": 394, "floor_y": 539},
-             "e": {"body_h": 420, "floor_y": 528}, "ne": {"body_h": 363, "floor_y": 526},
+# the packaged male mannequin's per-direction geometry (ual.glb, FR 14,
+# amendment 13: the mannequin A-pose)
+MALE_DIRS = {"s": {"body_h": 354, "floor_y": 536}, "se": {"body_h": 350, "floor_y": 539},
+             "e": {"body_h": 328, "floor_y": 528}, "ne": {"body_h": 320, "floor_y": 526},
              "n": {"body_h": 308, "floor_y": 518}}
 
 # a valid 2x2 PNG: the stub GLB bytes (its profile is registered per test)
@@ -241,14 +242,14 @@ class AnchorCase(unittest.TestCase):
 
     def test_anchor_reads_the_named_direction(self):
         """`anchor` targets the direction it is given: the same still anchored
-        against `e` (399 / 533) measures 399 x 832 / 704 = 471.6 with floor
+        against `e` (325 / 533) measures 325 x 832 / 704 = 384.4 with floor
         533 x 832 / 704 + 96 = 725.9, not the `s` numbers (391 / 715). The
         1.57x LANCZOS upscale blurs the figure edges by a pixel, hence +/- 2."""
         src, dst = self.tmp / "src.png", self.tmp / "e.png"
         spec_still().save(src)
         stills.anchor(src, dst, 704, profile(), "e")
         m = metrics.measure(dst)
-        self.assertAlmostEqual(m["body_h"], 399 * 832 / 704, delta=2)
+        self.assertAlmostEqual(m["body_h"], 325 * 832 / 704, delta=2)
         self.assertAlmostEqual(m["floor_y"], 533 * 832 / 704 + 96, delta=2)
 
     # ------------------------------------------------------------------ AC15-r8
