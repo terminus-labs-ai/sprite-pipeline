@@ -5,7 +5,7 @@ assets:
 
 - `stills/courier.png` — one still of your character as an A- or T-pose
   standing figure facing front (toward the camera), on a plain flat
-  background. The other direction stills are made from it by the edit
+  background (see [Stills](../../README.md#stills)). The other direction stills are made from it by the edit
   workflow.
 - `anims/ual.glb` — the Quaternius Universal Animation Library (CC0),
   `AnimationLibrary_Godot_Standard.glb`, renamed to `ual.glb`; the animation
