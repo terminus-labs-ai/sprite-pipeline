@@ -98,7 +98,7 @@ Top level:
 
 Workflow slots:
 
-Each workflow JSON is a ComfyUI API graph. The build fills the nodes titled `sp:<slot>` with the step's values; a slot the step needs but the workflow lacks is an error naming the workflow and the title. The full slot list is `sp:prompt`, `sp:negative`, `sp:pose_prompt`, `sp:seed`, `sp:ref_image`, `sp:drive_video`, `sp:width`, `sp:height`, `sp:length`, `sp:pose_strength` and `sp:save`; the full list also has `sp:pose_image`; the shipped `edit.json` carries `sp:prompt`, `sp:seed`, `sp:ref_image`, `sp:pose_image` (the direction guide, encoded like `sp:ref_image` and chained as a second reference on both conditionings) and `sp:save`, and the shipped `animate.json` carries all eleven.
+Each workflow JSON is a ComfyUI API graph. The build fills the nodes titled `sp:<slot>` with the step's values; a slot the step needs but the workflow lacks is an error naming the workflow and the title. The full slot list has twelve slots. The shipped `animate.json` carries eleven: `sp:prompt`, `sp:negative`, `sp:pose_prompt`, `sp:seed`, `sp:ref_image`, `sp:drive_video`, `sp:width`, `sp:height`, `sp:length`, `sp:pose_strength` and `sp:save`. The shipped `edit.json` carries five: `sp:prompt`, `sp:seed`, `sp:ref_image`, `sp:pose_image` (the direction guide, encoded like `sp:ref_image` and chained as a second reference on both conditionings) and `sp:save`; `sp:pose_image` is the twelfth slot, which `animate.json` lacks.
 
 ## Stills
 
