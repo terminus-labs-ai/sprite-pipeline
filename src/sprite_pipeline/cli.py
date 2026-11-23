@@ -30,7 +30,7 @@ import shutil
 import subprocess
 import sys
 
-from sprite_pipeline import config, metrics, project, stages, stills
+from sprite_pipeline import comfy, config, metrics, project, stages, stills
 
 
 def _narrow(values, allowed, flag):
@@ -129,7 +129,7 @@ def _print_plan_line(char, stage, argv, out):
         print(f"[{char}] stage={stage} (python copy)  {argv[1]} -> {argv[2]}", file=out)
         return
     if argv[0] == "composite_drive":  # in-process step, never a subprocess
-        print(f"[{char}] stage={stage} (python composite scale {argv[4]} on {','.join(argv[5:8])})  "
+        print(f"[{char}] stage={stage} (python composite scale {argv[3]} on {','.join(argv[4:7])})  "
               f"{argv[1]} -> {argv[2]}", file=out)
         return
     if argv[0] == "pad_ref":  # in-process step, never a subprocess
@@ -329,7 +329,8 @@ def run_cmds(ctx, cmds, log, out=None):
             stages.copy_file(cmd_argv[1], cmd_argv[2], log)
             continue
         if cmd_argv[0] == "composite_drive":
-            stages.composite_drive(cmd_argv[1], cmd_argv[2], cmd_argv[3], cmd_argv[4], cmd_argv[5:8], log)
+            stages.composite_drive(cmd_argv[1], cmd_argv[2], cmd_argv[3], cmd_argv[4:7],
+                                   cmd_argv[7], cmd_argv[8:10], cmd_argv[10:], log)
             continue
         if cmd_argv[0] == "pad_ref":
             stages.pad_ref(*cmd_argv[1:], log)
@@ -730,8 +731,13 @@ def _go(args, out, load_kwargs=None):
                         shutil.rmtree(ctx.frames_dir(char, anim, d), ignore_errors=True)
                         ctx.paths.motion_cache.mkdir(parents=True, exist_ok=True)
                         ctx.paths.comfy_input.mkdir(parents=True, exist_ok=True)
+                    mark = len(log)
                     ok = run_cmds(ctx, cmds, log, out)
                     if not ok:
+                        if s == "animate" and any(comfy.OOM_MARKER in x for x in log[mark:]):
+                            # FR 5: name the animation, its canvas and drive_scale
+                            print(stages.oom_message(proj, anim, d, ctx.canvas(char, anim)),
+                                  file=sys.stderr)
                         row[s] = "FAIL"
                         failed.append(f"{n}/{d} {s}")
                         break

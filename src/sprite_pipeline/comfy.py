@@ -39,6 +39,12 @@ SLOT_INPUTS = {
 }
 
 
+# FR 5 (dec-827): history status text that means ComfyUI ran out of GPU
+# memory, and the first line `post` fails with when it does
+OOM_SIGNS = ("OutOfMemory", "Allocation on device")
+OOM_MARKER = "comfy: out of GPU memory"
+
+
 class WorkflowError(ValueError):
     """A workflow is missing a slot the step needs; the message names the
     workflow file and the title."""
@@ -119,7 +125,12 @@ def post(api, graph, out_root, poll_interval=2.0, timeout=None):
         if pid in hist:
             h = hist[pid]
             if h["status"].get("status_str") != "success":
-                raise SystemExit(json.dumps(h["status"], indent=1)[:3000])
+                dump = json.dumps(h["status"], indent=1)
+                # FR 5 (dec-827): an out-of-memory failure is marked so `go`
+                # can name the animation and its drive_scale
+                if any(s in dump for s in OOM_SIGNS):
+                    raise SystemExit(f"{OOM_MARKER}\n{dump[:3000]}")
+                raise SystemExit(dump[:3000])
             files = []
             for out in h["outputs"].values():
                 for key in ("images", "videos", "gifs"):

@@ -60,7 +60,9 @@ class Case(unittest.TestCase):
         if pixel is not None:
             im.putpixel(pixel, (255, 0, 0, 255))
         im.save(src / "f0000.png")
-        stages.composite_drive(src, dst, step[3], step[4], step[5:8])
+        # the step's own scale, background, margin and aspect; the union is
+        # the test's frame dir (FR 4)
+        stages.composite_drive(src, dst, step[3], step[4:7], step[7], step[8:10], [src])
         return Image.open(dst / "f0000.png")
 
 
@@ -69,7 +71,7 @@ class TestAC1GreenDrive(Case):
         p = self.load()
         self.assertEqual(p.drive.background, GREEN)
         step = self.composite_step(p)
-        self.assertEqual(list(step[5:8]), [str(c) for c in GREEN])
+        self.assertEqual(list(step[4:7]), [str(c) for c in GREEN])
         out = self.run_composite(step, 64, pixel=(32, 32))
         self.assertEqual(out.mode, "RGB")
         colours = {c for _, c in out.getcolors(out.width * out.height)}
@@ -122,16 +124,17 @@ class TestAC2RenderSizeAndScale(Case):
         p = self.load()
         self.assertAlmostEqual(p.drive_scale(p.animation("punch")), 0.605)
         step = self.composite_step(p)
-        self.assertEqual(float(step[4]), 0.605)
+        self.assertEqual(float(step[3]), 0.605)
         # an opaque 1152 frame: the scaled mannequin area is round(1152*0.605)
         src = self.tmp / "src"
         src.mkdir()
         Image.new("RGBA", (1152, 1152), (255, 0, 0, 255)).save(src / "f0000.png")
         dst = self.tmp / "dst"
-        stages.composite_drive(src, dst, step[3], step[4], step[5:8])
+        stages.composite_drive(src, dst, step[3], step[4:7], step[7], step[8:10], [src])
         out = Image.open(dst / "f0000.png")
-        # centred on a frame_size square until slice 2's canvas lands
-        self.assertEqual(out.size, (704, 704))
+        # FR 4 auto canvas of a 697 x 697 union at margin 1.3, 16:9:
+        # H = ceil16(906.1) = 912, W = ceil16(max(906.1, 1621.3)) = 1632
+        self.assertEqual(out.size, (1632, 912))
         red = [(x, y) for y in range(out.height) for x in range(out.width)
                if out.getpixel((x, y)) != GREEN]
         xs = [x for x, _ in red]
@@ -146,11 +149,11 @@ class TestAC2RenderSizeAndScale(Case):
         _with_death_scale(self.path, 0.4)
         p = self.load()
         self.assertEqual(p.drive_scale(p.animation("death")), 0.4)
-        self.assertEqual(float(self.composite_step(p, "death")[4]), 0.4)
+        self.assertEqual(float(self.composite_step(p, "death")[3]), 0.4)
         for a in p.animations:
             if a.name != "death":
                 self.assertEqual(p.drive_scale(a), 0.5, a.name)
-                self.assertEqual(float(self.composite_step(p, a.name)[4]), 0.5, a.name)
+                self.assertEqual(float(self.composite_step(p, a.name)[3]), 0.5, a.name)
         self.assertNotEqual(p.drive_key(p.animation("death"), b"x"), k0)
 
     def test_r5_non_positive_drive_scale_names_the_animation(self):
@@ -169,9 +172,11 @@ class TestCompositeStepIsInProcess(Case):
     def test_drive_plan_composites_between_blender_and_ffmpeg(self):
         steps = self.drive_steps(self.load())
         labels = [label for _, label in steps]
-        self.assertEqual(labels, ["blender", "composite-drive", "ffmpeg", "copy-drive"])
-        composite = steps[1][0]
-        ffmpeg = steps[2][0]
+        # FR 4: before any direction is rendered, the plan also renders the
+        # other four directions the canvas spans
+        self.assertEqual(labels, ["blender"] * 5 + ["composite-drive", "ffmpeg", "copy-drive"])
+        composite = steps[5][0]
+        ffmpeg = steps[6][0]
         self.assertIn(f"{composite[2]}/f%04d.png", ffmpeg)
 
 

@@ -37,8 +37,9 @@ PRONOUNS = set(DEFAULT_WHO)
 # the `drive:` block defaults (spec FR 1-3): the flat key colour the
 # transparent drive is composited on, the square Blender render size, and
 # the scale applied to the rendered frames when an animation sets no
-# `drive_scale`
-DRIVE_DEFAULTS = {"background": [30, 202, 24], "render_size": 1152, "scale": 0.605}
+# `drive_scale`, and the auto canvas's margin and aspect (FR 4)
+DRIVE_DEFAULTS = {"background": [30, 202, 24], "render_size": 1152, "scale": 0.605,
+                  "margin": 1.3, "aspect": [16, 9]}
 
 
 class ProjectError(ValueError):
@@ -64,6 +65,8 @@ class Drive:
     background: tuple
     render_size: int
     scale: float
+    margin: float = DRIVE_DEFAULTS["margin"]
+    aspect: tuple = tuple(DRIVE_DEFAULTS["aspect"])
 
 
 @dataclass
@@ -100,8 +103,8 @@ class Animation:
     seam_max: float = 0.0
     directions: list = field(default_factory=list)
     workflow: Path = None  # per-animation override of workflows.animate (FR 3)
-    canvas: int = 0       # square render size in px; 0 until load sets sprite.frame_size
     drive_scale: float = None  # overrides drive.scale for this animation (FR 3)
+    index: int = 0        # position in the project's animations list (FR 5 message)
 
     @property
     def head_lift(self):
@@ -169,7 +172,8 @@ class Project:
              "elev": DRIVE_ELEV, "frame_size": self.sprite.frame_size,
              "background": list(self.drive.background), "render_size": self.drive.render_size,
              "drive_scale": self.drive_scale(anim),
-             **({"canvas": anim.canvas} if anim.canvas and anim.canvas != self.sprite.frame_size else {}),
+             "margin": self.drive.margin, "aspect": list(self.drive.aspect),
+             "directions": list(anim.directions),
              **({"arm_drop": anim.arm_drop} if anim.arm_drop else {})},
             sort_keys=True)
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
@@ -233,8 +237,14 @@ def _load_drive(name, d):
     size = block.get("render_size", DRIVE_DEFAULTS["render_size"])
     if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
         raise ProjectError(f"{name}: drive.render_size: {size!r} is not a positive integer")
+    aspect = block.get("aspect", DRIVE_DEFAULTS["aspect"])
+    if (not isinstance(aspect, list) or len(aspect) != 2
+            or not all(isinstance(c, int) and not isinstance(c, bool) and c > 0 for c in aspect)):
+        raise ProjectError(f"{name}: drive.aspect: {aspect!r} is not [w, h] with positive integers")
     return Drive(background=tuple(bg), render_size=size,
-                 scale=_positive(name, "drive.scale", block.get("scale", DRIVE_DEFAULTS["scale"])))
+                 scale=_positive(name, "drive.scale", block.get("scale", DRIVE_DEFAULTS["scale"])),
+                 margin=_positive(name, "drive.margin", block.get("margin", DRIVE_DEFAULTS["margin"])),
+                 aspect=tuple(aspect))
 
 
 def _positive(name, key, v):
@@ -419,12 +429,9 @@ def load_project(path, views_dir=VIEWS_DIR, profiles=None):
         for x in anim_dirs:
             if x not in generate:
                 raise ProjectError(f"{path.name}: animations[{i}].directions: {x!r} not in directions.generate")
-        canvas = int(a.get("canvas") or sprite.frame_size)
-        if canvas < sprite.frame_size:
-            raise ProjectError(f"{path.name}: animations[{i}].canvas: {canvas} is smaller than sprite.frame_size "
-                               f"({sprite.frame_size})")
-        if canvas % 16:
-            raise ProjectError(f"{path.name}: animations[{i}].canvas: {canvas} is not a multiple of 16")
+        if "canvas" in a:  # FR 7 (dec-821): the canvas is sized from the drive
+            raise ProjectError(f"{path.name}: animations[{i}].canvas: canvas is now automatic; "
+                               f"use drive.margin or drive_scale")
         # FR 4 amendment 3: every source GLB needs a mannequin profile (FR 14)
         # to anchor the stills it drives; the error prints the sha256 prefix and
         # the command that measures one
@@ -461,7 +468,7 @@ def load_project(path, views_dir=VIEWS_DIR, profiles=None):
                                          repeats=int(a.get("repeats") or 1), pre=int(a.get("pre", 1)),
                                          post=int(a.get("post") or 0), look_down=bool(a.get("look_down", False)),
                                          state=state, seam_max=float(a.get("seam_max") or 0),
-                                         directions=list(anim_dirs), workflow=wf_p, canvas=canvas,
+                                         directions=list(anim_dirs), workflow=wf_p, index=i,
                                          drive_scale=drive_scale))
 
     # FR 4: a naming pattern that does not produce unique names

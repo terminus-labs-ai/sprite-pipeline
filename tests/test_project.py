@@ -460,5 +460,32 @@ class TestViewPreset(unittest.TestCase):
             self.assertIn("no preset views/noman.yaml", str(cm.exception))
 
 
+class TestAC4CanvasKeyRemoved(unittest.TestCase):
+    """death-repro FR 7 (dec-821): the canvas is automatic."""
+
+    def test_r2_a_canvas_key_is_a_project_error(self):
+        second = ('\n  - {name: jump, canvas: 1024, source: anims/ual.glb#Jog_Fwd_Loop, '
+                  'frames: 22, clip_frames: 45, prompt: "{who} jumping"}\n')
+        with tempfile.TemporaryDirectory() as t:
+            with self.assertRaises(project.ProjectError) as cm:
+                project.load_project(write_project(t, base_project() + second.lstrip("\n")))
+            self.assertEqual(
+                str(cm.exception),
+                "project.yaml: animations[1].canvas: canvas is now automatic; "
+                "use drive.margin or drive_scale")
+
+    def test_drive_margin_and_aspect_default_and_validate(self):
+        with tempfile.TemporaryDirectory() as t:
+            p = project.load_project(write_project(t, base_project()))
+            self.assertEqual((p.drive.margin, p.drive.aspect), (1.3, (16, 9)))
+        for block, key in (("{margin: 0}", "drive.margin"), ("{aspect: [16]}", "drive.aspect"),
+                           ("{aspect: [16, 0]}", "drive.aspect")):
+            with self.subTest(block=block), tempfile.TemporaryDirectory() as t:
+                text = base_project().replace("\nanimations:", f"\ndrive: {block}\nanimations:")
+                with self.assertRaises(project.ProjectError) as cm:
+                    project.load_project(write_project(t, text))
+                self.assertIn(f"project.yaml: {key}:", str(cm.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

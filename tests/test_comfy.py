@@ -364,3 +364,136 @@ class TestAnimateSize(unittest.TestCase):
                  "2": {"class_type": "Y", "_meta": {"title": "sp:seed,sp:width"}, "inputs": {"width": 1, "noise_seed": 0}}}
         comfy.fill_slots(graph, {"width": 5}, "t.json")
         self.assertEqual([graph[k]["inputs"]["width"] for k in "12"], [5, 5])
+
+
+# ------------------------------------------------- death-repro FR 5: out of memory
+
+class FailingComfyHandler(BaseHTTPRequestHandler):
+    """/prompt accepts; /history answers the server's `status` (a failure)."""
+
+    def log_message(self, *a):
+        pass
+
+    def _json(self, obj):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(obj).encode())
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        self._json({"prompt_id": "p1"})
+
+    def do_GET(self):
+        self._json({"p1": {"status": self.server.status, "outputs": {}}})
+
+
+def _post_failure(status):
+    """The SystemExit the real `post` raises for a history `status`."""
+    server = HTTPServer(("127.0.0.1", 0), FailingComfyHandler)
+    server.status = status
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with tempfile.TemporaryDirectory() as t:
+            comfy.post(f"http://127.0.0.1:{server.server_address[1]}", {}, t, poll_interval=0)
+    except SystemExit as e:
+        return e
+    finally:
+        server.shutdown()
+    raise AssertionError("post returned on a failed status")
+
+
+def _error_status(exception_type, message):
+    return {"status_str": "error", "completed": False,
+            "messages": [["execution_error", {"node_id": "21", "exception_type": exception_type,
+                                              "exception_message": message}]]}
+
+
+OOM_STATUS = _error_status("torch.OutOfMemoryError",
+                           "CUDA out of memory. Tried to allocate 2.00 GiB")
+ALLOC_STATUS = _error_status("RuntimeError", "Allocation on device 0 would exceed allowed memory")
+OTHER_STATUS = _error_status("ValueError", "Prompt outputs failed validation")
+
+
+class TestAC5OutOfMemory(unittest.TestCase):
+    def test_r1_out_of_memory_status_is_marked(self):
+        e = _post_failure(OOM_STATUS)
+        self.assertEqual(str(e).splitlines()[0], "comfy: out of GPU memory")
+        self.assertIn("torch.OutOfMemoryError", str(e))
+
+    def test_r2_allocation_on_device_is_marked(self):
+        e = _post_failure(ALLOC_STATUS)
+        self.assertEqual(str(e).splitlines()[0], "comfy: out of GPU memory")
+
+    def test_r3_other_errors_keep_the_status_dump(self):
+        e = _post_failure(OTHER_STATUS)
+        self.assertEqual(str(e), json.dumps(OTHER_STATUS, indent=1))
+        self.assertNotIn("out of GPU memory", str(e))
+
+    def test_r1_message_names_the_animation_canvas_and_drive_scale(self):
+        from test_workflow_paths import stubbed_example
+        with tempfile.TemporaryDirectory() as t:
+            path, _ = stubbed_example(t)
+            p = project.load_project(path)
+            death = p.animation("death")
+            self.assertEqual(death.index, 11)
+            self.assertEqual(
+                stages.oom_message(p, death, "ne", (1824, 1040)),
+                "death-ne: out of GPU memory at 1824x1040 (drive_scale 0.605); "
+                "lower animations[11].drive_scale in project.yaml")
+
+
+class _Res:
+    def __init__(self, returncode, stderr=""):
+        self.returncode, self.stdout, self.stderr = returncode, "", stderr
+
+
+class TestAC5GoStops(unittest.TestCase):
+    """`go` through the animate stage: the comfy subprocess fails with the
+    text the real `post` raises; go exits non-zero naming the animation."""
+
+    def setUp(self):
+        from test_stages import Env, ProjectFixture
+        self.env = Env("run")
+        self.env.setUp()
+        self.addCleanup(self.env.doCleanups)
+        self.addCleanup(self.env.tearDown)
+        self.f = ProjectFixture(self.env.tmp)
+        self.f.approve()
+        p = project.load_project(self.f.project)
+        ctx = stages.StageCtx(p, config.load())
+        death = p.animation("death")
+        for d in death.directions:  # fake drives: valid PNGs, one 120x200 block
+            frames = ctx.frames_dir("courier", death, d)
+            frames.mkdir(parents=True)
+            from PIL import Image
+            im = Image.new("RGBA", (200, 200), (0, 0, 0, 0))
+            im.paste(Image.new("RGBA", (120, 200), (255, 0, 0, 255)), (40, 0))
+            im.save(frames / "f0000.png")
+
+    def go(self, status):
+        text = str(_post_failure(status))
+
+        def run(argv, **kw):
+            return _Res(1, text) if "sprite_pipeline.comfy" in argv else _Res(0)
+        return self.env.run_cli(["go", str(self.f.project), "--stage", "animate",
+                                 "--animations", "death", "--dirs", "ne"], fake=run)
+
+    def test_r1_go_exits_non_zero_with_the_fr5_message(self):
+        code, out = self.go(OOM_STATUS)
+        self.assertEqual(code, 1, out)
+        # union (120, 200) x 121/200 = (72.6, 121): H = ceil16(157.3) = 160,
+        # W = ceil16(max(94.4, 284.4)) = 288
+        self.assertIn("death-ne: out of GPU memory at 288x160 (drive_scale 0.605); "
+                      "lower animations[11].drive_scale in project.yaml", out)
+
+    def test_r2_allocation_on_device_gives_the_same_message(self):
+        code, out = self.go(ALLOC_STATUS)
+        self.assertEqual(code, 1, out)
+        self.assertIn("death-ne: out of GPU memory at 288x160", out)
+
+    def test_r3_other_errors_print_no_oom_message(self):
+        code, out = self.go(OTHER_STATUS)
+        self.assertEqual(code, 1, out)
+        self.assertIn("Prompt outputs failed validation", out)
+        self.assertNotIn("out of GPU memory", out)

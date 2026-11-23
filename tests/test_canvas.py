@@ -1,5 +1,7 @@
-"""Per-animation canvas: a wide pose (a fall) renders on a larger square
-canvas at the same pixel scale, so the character stays inside the frame.
+"""Per-animation canvas: the auto canvas of death-repro FR 4 (AC 3, case rows
+AC3-r1..r5), sized from the union of the scaled mannequin over every frame of
+every direction of the animation, plus the reference padding the animate
+stage keeps until slice 3.
 
 No network, GPU, Blender or ComfyUI: plans are inspected, images are small
 PNGs written by the test.
@@ -17,84 +19,119 @@ from test_workflow_paths import cfg, stubbed_example
 from sprite_pipeline import config, metrics, project, stages, stills
 
 
-def _with_canvas(path, canvas):
-    text = path.read_text().replace(
-        '- {name: punch, source: "anims/ual.glb#Punch_Cross",',
-        f'- {{name: punch, canvas: {canvas}, source: "anims/ual.glb#Punch_Cross",', 1)
+class TestAC3CanvasFor(unittest.TestCase):
+    """The pure FR 4 rule: H = ceil16(margin x union h), W = ceil16(max(margin
+    x union w, H x aspect)). Expected values are worked by hand."""
+
+    def test_r1_tall_union_pads_width_to_16_9(self):
+        # H = ceil16(390) = 400; W = ceil16(max(260, 711.1)) = 720
+        self.assertEqual(stages.canvas_for((200, 300), 1.3, (16, 9)), (720, 400))
+
+    def test_r2_measured_sp64_unions_at_0_605(self):
+        """The prototype's c1152 drives (sp62/dirs/rgba-drives/c1152-<d>):
+        raw union px at 1152, scaled by round(1152 x 0.605) / 1152 = 697 /
+        1152. ESCALATED: the case table expects heights 336/336/320/432/464,
+        which the prototype got from an extra `H = max(H, ceil16(W x 9 /
+        16))` step that FR 4 (and rows r1/r3) do not have; this asserts FR 4."""
+        k = 697 / 1152
+        raw = {"se": (490, 389), "s": (244, 396), "e": (499, 383),
+               "ne": (454, 541), "n": (244, 563)}
+        want = {"se": (576, 320), "s": (576, 320), "e": (544, 304),
+                "ne": (768, 432), "n": (800, 448)}
+        for d, (w, h) in raw.items():
+            with self.subTest(d=d):
+                self.assertEqual(stages.canvas_for((w * k, h * k), 1.3, (16, 9)), want[d])
+
+    def test_r3_wide_union_width_follows_the_margin(self):
+        # H = ceil16(130) = 144; W = ceil16(max(1300, 256)) = 1312
+        self.assertEqual(stages.canvas_for((1000, 100), 1.3, (16, 9)), (1312, 144))
+
+
+# AC3-r4/r5 drives: 200 px square transparent frames, one opaque block each,
+# at drive_scale 0.5 (k = 100 / 200). Single-direction unions differ; the
+# union over s, se, e is x 40-160, y 0-200 -> (60, 100) scaled.
+BLOCKS = {"s": ((90, 20), (20, 160)), "se": ((40, 100), (120, 80)),
+          "e": ((60, 0), (40, 200))}
+
+
+def _with_death(path, extra):
+    text = path.read_text().replace("- {name: death, source:", f"- {{name: death, {extra}, source:", 1)
     path.write_text(text)
     return path
 
 
-class Case(unittest.TestCase):
+class DriveCase(unittest.TestCase):
     def setUp(self):
         self._t = tempfile.TemporaryDirectory()
         self.addCleanup(self._t.cleanup)
+        self.tmp = Path(self._t.name)
         self.path, self.base = stubbed_example(self._t.name)
+        _with_death(self.path, "directions: [s, se, e], drive_scale: 0.5")
 
-    def load(self, canvas=None):
-        if canvas is not None:
-            _with_canvas(self.path, canvas)
-        return project.load_project(self.path)
-
-
-class TestLoad(Case):
-    def test_canvas_defaults_to_frame_size(self):
-        p = self.load()
-        self.assertEqual(p.animation("punch").canvas, 704)
-
-    def test_canvas_loaded(self):
-        self.assertEqual(self.load(960).animation("punch").canvas, 960)
-        self.assertEqual(project.load_project(self.path).animation("run").canvas, 704)
-
-    def test_canvas_smaller_than_frame_size_rejected(self):
-        with self.assertRaises(project.ProjectError) as cm:
-            self.load(512)
-        self.assertIn("animations[1].canvas", str(cm.exception))
-
-    def test_canvas_not_multiple_of_16_rejected(self):
-        with self.assertRaises(project.ProjectError) as cm:
-            self.load(970)
-        self.assertIn("multiple of 16", str(cm.exception))
-
-
-class TestPlans(Case):
-    def ctx(self, canvas):
-        p = self.load(canvas)
-        return stages.StageCtx(p, cfg(Path("/nonexistent-home"))), p
-
-    def test_drive_renders_wider_at_the_same_pixel_scale(self):
-        ctx, p = self.ctx(960)
-        argv = ctx.plan_pair("courier", p.animation("punch"), "s", "drive")[0][0]
-        # drive.render_size (death-repro FR 2) sets res=/ortho=, not canvas
-        self.assertIn("res=1152", argv)
-        ortho = [x for x in argv if x.startswith("ortho=")][0]
-        self.assertAlmostEqual(float(ortho[6:]), 3.0 * 1152 / 704, places=4)
-        run = ctx.plan_pair("courier", p.animation("run"), "s", "drive")[0][0]
-        self.assertIn("res=1152", run)
-
-    def test_drive_key_changes_with_canvas(self):
-        a = self.load().animation("punch")
-        b = project.load_project(_with_canvas(self.path, 960)).animation("punch")
+    def ctx(self):
         p = project.load_project(self.path)
-        self.assertNotEqual(p.drive_key(a, b"x"), p.drive_key(b, b"x"))
+        return stages.StageCtx(p, cfg(self.tmp / "home")), p
 
-    def test_animate_uses_a_padded_reference_at_canvas_size(self):
-        ctx, p = self.ctx(960)
-        cmds = ctx.plan_pair("courier", p.animation("punch"), "s", "animate")
-        pad, (argv, _) = cmds[0][0], cmds[1]
-        self.assertEqual(pad[0], "pad_ref")
-        self.assertEqual(pad[1], str(ctx.dir_still("courier", "s")))
-        self.assertEqual(argv[argv.index("--ref") + 1], pad[2])
-        self.assertEqual(argv[argv.index("--w") + 1], "960")
-        self.assertEqual(argv[argv.index("--h") + 1], "960")
-        self.assertEqual(pad[3:], ("704", "960"))
+    def render(self, ctx, anim, dirs=BLOCKS):
+        """The fake drive render: valid Pillow PNGs in each direction's frames dir."""
+        for d, (at, size) in dirs.items():
+            frames = ctx.frames_dir("courier", anim, d)
+            frames.mkdir(parents=True, exist_ok=True)
+            im = Image.new("RGBA", (200, 200), (0, 0, 0, 0))
+            im.paste(Image.new("RGBA", size, (255, 0, 0, 255)), at)
+            im.save(frames / "f0000.png")
 
-    def test_default_canvas_animate_is_unchanged(self):
-        ctx, p = self.ctx(960)
-        cmds = ctx.plan_pair("courier", p.animation("run"), "s", "animate")
-        self.assertEqual(len(cmds), 1)
-        argv = cmds[0][0]
-        self.assertEqual(argv[argv.index("--ref") + 1], str(ctx.dir_still("courier", "s")))
+
+class TestAC3OneCanvasPerAnimation(DriveCase):
+    def test_r4_all_directions_share_the_union_canvas(self):
+        ctx, p = self.ctx()
+        death = p.animation("death")
+        # each direction alone: s (10, 80) -> (208, 112); se (60, 40) -> (128, 64)
+        self.assertEqual(stages.canvas_for((10, 80), 1.3, (16, 9)), (208, 112))
+        self.render(ctx, death)
+        # the union (60, 100): H = ceil16(130) = 144, W = ceil16(max(78, 256)) = 256
+        self.assertEqual(ctx.canvas("courier", death), (256, 144))
+        for d in BLOCKS:
+            with self.subTest(d=d):
+                step = next(a for a, _ in ctx.plan_pair("courier", death, d, "drive")
+                            if a[0] == "composite_drive")
+                dst = self.tmp / "out" / d
+                stages.composite_drive(ctx.frames_dir("courier", death, d), dst,
+                                       step[3], step[4:7], step[7], step[8:10], step[10:])
+                self.assertEqual(Image.open(dst / "f0000.png").size, (256, 144))
+                argv = ctx.plan_pair("courier", death, d, "animate")[-1][0]
+                self.assertEqual(argv[argv.index("--w") + 1:argv.index("--h") + 2],
+                                 ["256", "--h", "144"])
+
+    def test_r4_the_drive_plan_renders_the_directions_still_missing(self):
+        ctx, p = self.ctx()
+        death = p.animation("death")
+        steps = ctx.plan_pair("courier", death, "se", "drive")
+        renders = [a for a, label in steps if label == "blender"]
+        self.assertEqual([r[r.index("--") + 3] for r in renders],
+                         [str(ctx.frames_dir("courier", death, d)) for d in ("se", "s", "e")])
+        self.assertEqual([r[r.index("--") + 4] for r in renders], ["45", "0", "90"])
+        self.render(ctx, death, {"s": BLOCKS["s"], "e": BLOCKS["e"]})
+        steps = ctx.plan_pair("courier", death, "se", "drive")
+        self.assertEqual([label for _, label in steps].count("blender"), 1)
+
+    def test_r5_margin_and_aspect_drive_the_canvas_and_the_key(self):
+        ctx, p = self.ctx()
+        k0 = p.drive_key(p.animation("death"), b"x")
+        text = self.path.read_text().replace("\nanimations:", "\ndrive: {margin: 1.5, aspect: [4, 3]}\nanimations:", 1)
+        self.path.write_text(text)
+        ctx, p = self.ctx()
+        death = p.animation("death")
+        self.assertEqual((p.drive.margin, p.drive.aspect), (1.5, (4, 3)))
+        self.render(ctx, death)
+        # union (60, 100): H = ceil16(150) = 160, W = ceil16(max(90, 213.3)) = 224
+        self.assertEqual(ctx.canvas("courier", death), (224, 160))
+        self.assertNotEqual(p.drive_key(death, b"x"), k0)
+        for block in ("{margin: 1.5}", "{aspect: [4, 3]}"):
+            with self.subTest(block=block):
+                self.path.write_text(text.replace("drive: {margin: 1.5, aspect: [4, 3]}", f"drive: {block}"))
+                q = project.load_project(self.path)
+                self.assertNotEqual(q.drive_key(q.animation("death"), b"x"), k0)
 
 
 def _bbox(path):

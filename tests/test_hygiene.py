@@ -179,19 +179,20 @@ class TestOneElevationDefinition(unittest.TestCase):
                      "background": list(proj.drive.background),
                      "render_size": proj.drive.render_size,
                      "drive_scale": proj.drive_scale(anim),
-                     **({"canvas": anim.canvas} if anim.canvas
-                        and anim.canvas != proj.sprite.frame_size else {})},
+                     # death-repro FR 4: the auto canvas's inputs
+                     "margin": 1.3, "aspect": [16, 9],
+                     "directions": ["s", "se", "e", "ne", "n"]},
                     sort_keys=True)
                 return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
-            pinned = {  # drive_key per animation with the death-repro drive values
-                "run": "1252116c92ff21b9", "punch": "407b8788d56d2fd2",
-                "idle": "cde06f97e177eb3f", "walk": "217be70ffa8175de",
-                "sneak": "f86fa21cf7e3e751", "crouch_idle": "454d88cf5db3cb64",
-                "hack": "c3c5f3d3b238bc74", "interact": "d93cea6277529d3a",
-                "jab": "c5c81a6985296b41", "pistol_shoot": "e398da04b4b0cb9f",
-                "hit": "74a0ed65d44428e5", "death": "31aae25f0978c8a5",
-                "roll": "5966dce594bcb782",
+            pinned = {  # drive_key per animation with the death-repro drive and canvas values
+                "run": "5a151461d48db9b8", "punch": "36f3951e9daa8226",
+                "idle": "e714381b915861b9", "walk": "24080037937a1790",
+                "sneak": "9a2b0c0e9226f25d", "crouch_idle": "aecf7bd49b03076a",
+                "hack": "66610f0437096705", "interact": "69ef6921df7bf8a1",
+                "jab": "178f1683d0c8dd7b", "pistol_shoot": "e52c97ea3d1c84cb",
+                "hit": "797f9bd98f427199", "death": "0da631f08769fd20",
+                "roll": "1214ea51bf6f15a7",
             }
             self.assertEqual(set(pinned), {a.name for a in p.animations})
             for anim in p.animations:
