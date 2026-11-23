@@ -28,12 +28,17 @@ def shrink(im, scale):
 
 
 sets = {}
+skipped = []
 for spec in a.set:
     name, rest = spec.split("=", 1)
     d, _, idx = rest.partition(":")
     files = sorted(glob.glob(f"{d}/*.png"))
     if idx:
         files = [files[int(i)] for i in idx.split(",")]
+    if not files:
+        print(f"skipping empty set: {name} ({d})")
+        skipped.append(name)
+        continue
     sets[name] = [Image.open(f).convert("RGBA") for f in files]
 
 ref = Image.open(a.ref).convert("RGBA") if a.ref else None
@@ -54,6 +59,9 @@ for s in palette_src:
             h, sat, v = colorsys.rgb_to_hsv(*(c / 255 for c in p[:3]))
             if sat > 0.45 and v > 0.35:
                 pixels += [p[:3]] * a.accent_boost
+if not pixels:
+    # no --ref and every set was empty (or fully transparent): no source pixels to build a palette from
+    raise SystemExit(1 if skipped else 0)
 strip = Image.new("RGB", (len(pixels), 1)); strip.putdata(pixels)
 pal = strip.quantize(colors=a.colors, method=Image.Quantize.MEDIANCUT)
 
@@ -75,3 +83,4 @@ for name, frames in small.items():
         sheet.paste(v, (x, 0)); x += v.width
     sheet.save(outdir / f"{name}_sheet.png")
     print(name, len(done), "frames", done[0].size)
+raise SystemExit(1 if skipped else 0)
