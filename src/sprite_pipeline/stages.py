@@ -275,14 +275,20 @@ class StageCtx:
             if anim.arm_drop:
                 # the A-pose drop rides only with the mannequin render (amendment 13)
                 argv += ["--arm-drop", str(anim.arm_drop)]
-            if anim.canvas and anim.canvas != p.sprite.frame_size:
-                # a larger canvas widens the camera by the same ratio, so the
-                # mannequin keeps its pixel size and gains room around it
-                argv += [f"res={anim.canvas}", f"ortho={DRIVE_ORTHO * anim.canvas / p.sprite.frame_size:.6f}"]
+            # FR 2: render_size widens the camera by the same ratio, so the
+            # mannequin keeps the frame-size pixel scale and no limb clips
+            size = p.drive.render_size
+            argv += [f"res={size}", f"ortho={DRIVE_ORTHO * size / p.sprite.frame_size:.6f}"]
+            # FR 1, 3: the transparent frames, scaled by the drive scale and
+            # composited on drive.background (a Python step, run as a module)
+            keyed = frames.parent / "composited"
+            composite = [sys.executable, "-m", "sprite_pipeline.stages", "composite-drive",
+                         str(frames), str(keyed), str(p.sprite.frame_size),
+                         f"{p.drive_scale(anim):g}", *(str(c) for c in p.drive.background)]
             cache = self.cache_mp4(char, anim, d)
-            cmds = [(argv, "blender"),
+            cmds = [(argv, "blender"), (composite, "composite-drive"),
                     (["ffmpeg", "-v", "error", "-y", "-framerate", str(p.sprite.fps),
-                      "-i", f"{frames}/f%04d.png", "-c:v", "libx264", "-crf", "12",
+                      "-i", f"{keyed}/f%04d.png", "-c:v", "libx264", "-crf", "12",
                       "-pix_fmt", "yuv420p", str(cache)], "ffmpeg")]
             # the copy into ComfyUI's input/ is an in-process step: the marker
             # argv[0] "copy_file" is executed by Python, never spawned (AC8-r3)
@@ -422,6 +428,34 @@ def pad_ref(src, dst, frame, canvas, log):
     log.append(f"pad_ref {src} -> {dst} ({frame} on {canvas})")
 
 
+def composite_drive(src_dir, dst_dir, frame_size, scale, background):
+    """FR 1, 3: each transparent drive frame `src_dir/f*.png`, resized by
+    `scale` (rounded), centred on a frame_size square of the flat
+    `background` colour and written as RGB to `dst_dir` under the same name.
+    (Slice 2's auto canvas replaces the frame_size square.)"""
+    from PIL import Image
+
+    dst_dir = Path(dst_dir)
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    frame_size, scale, background = int(frame_size), float(scale), tuple(int(c) for c in background)
+    for f in sorted(Path(src_dir).glob("f*.png")):
+        im = Image.open(f).convert("RGBA")
+        im = im.resize((round(im.width * scale), round(im.height * scale)), Image.LANCZOS)
+        layer = Image.new("RGBA", (frame_size, frame_size), (0, 0, 0, 0))
+        layer.paste(im, ((frame_size - im.width) // 2, (frame_size - im.height) // 2))
+        out = Image.alpha_composite(Image.new("RGBA", layer.size, background + (255,)), layer)
+        out.convert("RGB").save(dst_dir / f.name)
+
+
+def main(argv=None):
+    """`python -m sprite_pipeline.stages composite-drive SRC DST FRAME SCALE R G B`."""
+    a = sys.argv[1:] if argv is None else argv
+    if len(a) != 8 or a[0] != "composite-drive":
+        sys.exit("usage: python -m sprite_pipeline.stages composite-drive SRC DST FRAME SCALE R G B")
+    composite_drive(a[1], a[2], a[3], a[4], a[5:8])
+    return 0
+
+
 def copy_file(src, dst, log):
     """The drive copy, done in Python — no `cp` subprocess exists anywhere (AC8)."""
     Path(dst).parent.mkdir(parents=True, exist_ok=True)
@@ -452,3 +486,7 @@ def quote(a):
 # StageCtx.run_program dispatches "export" to it. These re-exports keep
 # stages.do_export / stages.write_tres resolving for existing callers.
 from sprite_pipeline.export_godot import do_export, write_tres  # noqa: E402,F401
+
+
+if __name__ == "__main__":
+    sys.exit(main())

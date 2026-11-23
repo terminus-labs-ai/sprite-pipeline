@@ -71,7 +71,7 @@ sh.show_cavity = True; sh.show_shadows = False
 sc.world = bpy.data.worlds.new("w"); sc.world.color = (0.35, 0.35, 0.37)
 sh.background_type = "WORLD" if hasattr(sh, "background_type") else sh.background_type
 import os; sc.render.resolution_x, sc.render.resolution_y = int(opts.get("res", os.environ.get("RW", 576))), int(opts.get("res", os.environ.get("RH", 704)))
-sc.render.film_transparent = False
+sc.render.film_transparent = True; sc.render.image_settings.color_mode = "RGBA"  # FR 1: composited on drive.background later
 sc.render.image_settings.file_format = "PNG"
 for i, f in enumerate(frames):
     sc.frame_set(f)

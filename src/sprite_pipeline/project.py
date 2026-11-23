@@ -34,6 +34,11 @@ DRIVE_ELEV = 45
 # pronoun -> the pose subject when a character gives no `who` (FR 2)
 DEFAULT_WHO = {"he": "a man", "she": "a woman", "they": "a person"}
 PRONOUNS = set(DEFAULT_WHO)
+# the `drive:` block defaults (spec FR 1-3): the flat key colour the
+# transparent drive is composited on, the square Blender render size, and
+# the scale applied to the rendered frames when an animation sets no
+# `drive_scale`
+DRIVE_DEFAULTS = {"background": [30, 202, 24], "render_size": 1152, "scale": 0.605}
 
 
 class ProjectError(ValueError):
@@ -53,6 +58,13 @@ class Sprite:
         return cls(scale=float(d["scale"]), colors=int(d["colors"]),
                    accent_boost=int(d["accent_boost"]), fps=int(d["fps"]),
                    frame_size=int(d["frame_size"]))
+
+@dataclass
+class Drive:
+    background: tuple
+    render_size: int
+    scale: float
+
 
 @dataclass
 class Character:
@@ -89,6 +101,7 @@ class Animation:
     directions: list = field(default_factory=list)
     workflow: Path = None  # per-animation override of workflows.animate (FR 3)
     canvas: int = 0       # square render size in px; 0 until load sets sprite.frame_size
+    drive_scale: float = None  # overrides drive.scale for this animation (FR 3)
 
     @property
     def head_lift(self):
@@ -113,6 +126,9 @@ class Project:
     workflows: dict
     characters: list
     animations: list
+    drive: Drive = field(default_factory=lambda: Drive(tuple(DRIVE_DEFAULTS["background"]),
+                                                       DRIVE_DEFAULTS["render_size"],
+                                                       DRIVE_DEFAULTS["scale"]))
     # the mannequin-profile map the load gate checked (FR 4, FR 14): the map
     # `anchor_profile` anchors with, so gate and anchor never disagree
     profiles: dict = field(default=None, repr=False, compare=False)
@@ -135,6 +151,10 @@ class Project:
                 return a
         raise ProjectError(f"animation {name!r} not found")
 
+    def drive_scale(self, anim):
+        """FR 3: the animation's `drive_scale`, else the project's `drive.scale`."""
+        return anim.drive_scale if anim.drive_scale is not None else self.drive.scale
+
     def drive_key(self, anim, glb_bytes):
         """Cache key over the source file content, the action and the drive params (FR 10, dec: dec-629).
 
@@ -147,6 +167,8 @@ class Project:
              "repeats": anim.repeats, "pre": anim.pre, "post": anim.post,
              "head_lift": anim.head_lift, "rig": {"neck": self.rig["neck"], "head": self.rig["head"]},
              "elev": DRIVE_ELEV, "frame_size": self.sprite.frame_size,
+             "background": list(self.drive.background), "render_size": self.drive.render_size,
+             "drive_scale": self.drive_scale(anim),
              **({"canvas": anim.canvas} if anim.canvas and anim.canvas != self.sprite.frame_size else {}),
              **({"arm_drop": anim.arm_drop} if anim.arm_drop else {})},
             sort_keys=True)
@@ -197,6 +219,28 @@ def _clip_frames_default(start, frames):
     if n % 4 == 1:
         return n
     return n + (5 - n % 4) % 4  # next 4n+1, e.g. 23 -> 25
+
+
+def _load_drive(name, d):
+    """The `drive:` block (FR 1-3), each missing key at its DRIVE_DEFAULTS value."""
+    block = d.get("drive") or {}
+    if not isinstance(block, dict):
+        raise ProjectError(f"{name}: drive: must be a mapping")
+    bg = block.get("background", DRIVE_DEFAULTS["background"])
+    if (not isinstance(bg, list) or len(bg) != 3
+            or not all(isinstance(c, int) and not isinstance(c, bool) and 0 <= c <= 255 for c in bg)):
+        raise ProjectError(f"{name}: drive.background: {bg!r} is not [r, g, b] with 0-255 integers")
+    size = block.get("render_size", DRIVE_DEFAULTS["render_size"])
+    if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
+        raise ProjectError(f"{name}: drive.render_size: {size!r} is not a positive integer")
+    return Drive(background=tuple(bg), render_size=size,
+                 scale=_positive(name, "drive.scale", block.get("scale", DRIVE_DEFAULTS["scale"])))
+
+
+def _positive(name, key, v):
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0:
+        raise ProjectError(f"{name}: {key}: {v!r} is not a positive number")
+    return float(v)
 
 
 def load_project(path, views_dir=VIEWS_DIR, profiles=None):
@@ -281,7 +325,7 @@ def load_project(path, views_dir=VIEWS_DIR, profiles=None):
     proj = Project(path=path, style=d.get("style") or "", view=view, generate=generate, mirror=mirror,
                    sprite=sprite, naming=naming, export=export, seed=seed,
                    pose_strength=pose_strength, output=output, rig=rig, workflows=workflows,
-                   characters=[], animations=[], profiles=profiles)
+                   characters=[], animations=[], drive=_load_drive(path.name, d), profiles=profiles)
 
     # the view's camera-facing directions (FR 2): the preset's face_dirs
     # intersected with directions.generate, in generate order; a preset
@@ -409,13 +453,16 @@ def load_project(path, views_dir=VIEWS_DIR, profiles=None):
                 wf_p = path.parent / wf_p
         else:
             wf_p = None
+        drive_scale = (_positive(path.name, f"animations[{i}].drive_scale", a["drive_scale"])
+                       if a.get("drive_scale") is not None else None)
         proj.animations.append(Animation(name=name, source=src_p, action=action, frames=frames,
                                          loop=bool(a.get("loop", False)), prompt=a.get("prompt") or "",
                                          start=start, clip_frames=clip,
                                          repeats=int(a.get("repeats") or 1), pre=int(a.get("pre", 1)),
                                          post=int(a.get("post") or 0), look_down=bool(a.get("look_down", False)),
                                          state=state, seam_max=float(a.get("seam_max") or 0),
-                                         directions=list(anim_dirs), workflow=wf_p, canvas=canvas))
+                                         directions=list(anim_dirs), workflow=wf_p, canvas=canvas,
+                                         drive_scale=drive_scale))
 
     # FR 4: a naming pattern that does not produce unique names
     seen = {}
