@@ -157,6 +157,26 @@ class TestAC9WorkflowValues(unittest.TestCase):
         self.assertIn("project.yaml: animations[0].animate.stepz: unknown key", str(cm.exception))
 
 
+class TestFR12NegativeDefault(unittest.TestCase):
+
+    def test_unset_negative_fills_slot_with_project_default(self):
+        g = one(lambda d: None)
+        self.assertEqual(g["8"]["inputs"]["text"], project.ANIMATE_DEFAULTS["negative"])
+        self.assertEqual(project.ANIMATE_DEFAULTS["negative"],
+                         "camera movement, zoom in, zoom out, pan, tilt, tracking shot, cropped limbs")
+
+    def test_project_negative_overrides_default(self):
+        self.assertEqual(one(set_project(negative="no zoom"))["8"]["inputs"]["text"], "no zoom")
+
+    def test_animation_negative_overrides_project_and_default(self):
+        def edit(d):
+            set_project(negative="no zoom")(d)
+            anim_block("death", negative="no pan")(d)
+        out = build(edit, titled_graph(), (("death", "se"), ("run", "s")))
+        self.assertEqual(out[("death", "se")]["8"]["inputs"]["text"], "no pan")
+        self.assertEqual(out[("run", "s")]["8"]["inputs"]["text"], "no zoom")
+
+
 class TestAC10NoLora(unittest.TestCase):
 
     def test_AC10_r1_lora_none_removes_node_and_rewires(self):

@@ -45,10 +45,13 @@ DRIVE_DEFAULTS = {"background": [30, 202, 24], "render_size": 1152, "scale": 0.6
 REFERENCE_DEFAULTS = {"height_ratio": 1.07}
 # the `animate:` block keys (spec FR 12, 13): each fills the animate
 # workflow's `sp:<key>` slot only when set; an unset key leaves the
-# workflow's own input as it is, so none has a default here
+# workflow's own input as it is; only ANIMATE_DEFAULTS keys have a default
 ANIMATE_KEYS = ("unet", "lora", "lora_strength", "sampler", "scheduler", "steps", "shift",
                 "cfg", "seed", "pose_strength", "pose_start_percent", "pose_end_percent",
                 "reference_image_strength", "negative", "pose_prompt")
+# FR 12: the project default for `animate.negative`, the -64 reference
+# run's negative; a project or animation `animate.negative` overrides it
+ANIMATE_DEFAULTS = {"negative": "camera movement, zoom in, zoom out, pan, tilt, tracking shot, cropped limbs"}
 # FR 11: whether the animate prompt carries the view's facing line
 FACING_LINE_DEFAULT = True
 
@@ -383,7 +386,7 @@ def load_project(path, views_dir=VIEWS_DIR, profiles=None):
         raise ProjectError(f"{path.name}: export: {export!r} (only godot is supported)")
     # Interfaces: top-level `seed` and `pose_strength` are the project
     # defaults for `animate.seed` and `animate.pose_strength`; not both forms
-    animate = _load_animate(path.name, d.get("animate"), "animate")
+    animate = {**ANIMATE_DEFAULTS, **_load_animate(path.name, d.get("animate"), "animate")}
     for k in ("seed", "pose_strength"):
         if k in d and k in animate:
             raise ProjectError(f"{path.name}: {k} and animate.{k} are both set; keep one")
