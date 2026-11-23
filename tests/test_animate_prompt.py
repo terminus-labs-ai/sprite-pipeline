@@ -9,6 +9,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 from test_workflow_paths import cfg, stubbed_example
 
 from sprite_pipeline import comfy, project, stages, stills
@@ -96,6 +98,47 @@ class TestFacingLines(unittest.TestCase):
             for other in self.proj.generate:
                 if other != d:
                     self.assertNotIn(f"LOOK-{other}-END", p)
+
+
+# the isometric view's lines for a `she` character, copied from
+# views/isometric.yaml so the expected prompt is stated independently
+SE_FACING = ("Her body, head and gaze all point toward the lower right of the image, "
+             "toward the camera, so we see her front from above the whole time.")
+CAMERA = ("Seen from a high fixed isometric camera looking down at her at about 45 degrees, "
+          "small in the frame with empty space around her, full body always inside the frame.")
+BACKGROUND = ("Background description: the background is one perfectly flat uniform "
+              "chroma-key green, no floor, no shadow, no shapes.")
+
+
+class TestFacingLineSwitch(unittest.TestCase):
+    """AC 8 (FR 11): `animations[].facing_line: false` drops the facing line."""
+
+    def load(self, edit):
+        t = tempfile.TemporaryDirectory()
+        self.addCleanup(t.cleanup)
+        p = stubbed_example(t.name)[0]
+        d = yaml.safe_load(p.read_text())
+        edit(d)
+        p.write_text(yaml.safe_dump(d))
+        proj = project.load_project(p)
+        proj.characters[0].face_dirs = ["s"]
+        return proj
+
+    def test_AC8_r1_facing_line_false_omits_the_facing_line(self):
+        def edit(d):
+            next(a for a in d["animations"] if a["name"] == "death")["facing_line"] = False
+        proj = self.load(edit)
+        p = prompt_of(plan(proj, "se", "death"))
+        self.assertNotIn(SE_FACING, p)
+        self.assertNotIn("lower right", p)
+        self.assertIn(CAMERA, p)
+        self.assertIn(SE_FACING, prompt_of(plan(proj, "se", "run")))
+
+    def test_AC8_r2_no_key_keeps_todays_prompt(self):
+        proj = self.load(lambda d: None)
+        char = proj.characters[0]
+        self.assertEqual(prompt_of(plan(proj, "se", "run")),
+                         f"{char.describe}. {proj.style}. {CAMERA} {SE_FACING} {BACKGROUND}")
 
 
 if __name__ == "__main__":

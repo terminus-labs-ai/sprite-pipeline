@@ -43,6 +43,14 @@ DRIVE_DEFAULTS = {"background": [30, 202, 24], "render_size": 1152, "scale": 0.6
 # the `reference:` block defaults (spec FR 8): the placed reference's body
 # height over the scaled mannequin's f0 body height
 REFERENCE_DEFAULTS = {"height_ratio": 1.07}
+# the `animate:` block keys (spec FR 12, 13): each fills the animate
+# workflow's `sp:<key>` slot only when set; an unset key leaves the
+# workflow's own input as it is, so none has a default here
+ANIMATE_KEYS = ("unet", "lora", "lora_strength", "sampler", "scheduler", "steps", "shift",
+                "cfg", "seed", "pose_strength", "pose_start_percent", "pose_end_percent",
+                "reference_image_strength", "negative", "pose_prompt")
+# FR 11: whether the animate prompt carries the view's facing line
+FACING_LINE_DEFAULT = True
 
 
 class ProjectError(ValueError):
@@ -115,6 +123,8 @@ class Animation:
     drive_scale: float = None  # overrides drive.scale for this animation (FR 3)
     pixel_scale: float = None  # the pixelize scale for this animation (FR 9)
     index: int = 0        # position in the project's animations list (FR 5 message)
+    facing_line: bool = FACING_LINE_DEFAULT  # FR 11: the animate prompt carries the facing line
+    animate: dict = field(default_factory=dict)  # FR 13: this animation's `animate:` block
 
     @property
     def head_lift(self):
@@ -143,6 +153,9 @@ class Project:
                                                        DRIVE_DEFAULTS["render_size"],
                                                        DRIVE_DEFAULTS["scale"]))
     reference: Reference = field(default_factory=Reference)
+    # FR 13: the project `animate:` block without seed and pose_strength,
+    # which are folded into `seed` and `pose_strength` (Interfaces)
+    animate: dict = field(default_factory=dict)
     # the mannequin-profile map the load gate checked (FR 4, FR 14): the map
     # `anchor_profile` anchors with, so gate and anchor never disagree
     profiles: dict = field(default=None, repr=False, compare=False)
@@ -266,6 +279,18 @@ def _load_drive(name, d):
                  aspect=tuple(aspect))
 
 
+def _load_animate(name, block, where):
+    """An `animate:` block at YAML path `where` (FR 12, 13): a mapping of
+    ANIMATE_KEYS, returned as a dict of the keys that are set."""
+    block = block or {}
+    if not isinstance(block, dict):
+        raise ProjectError(f"{name}: {where}: must be a mapping")
+    for k in block:
+        if k not in ANIMATE_KEYS:
+            raise ProjectError(f"{name}: {where}.{k}: unknown key (one of {', '.join(ANIMATE_KEYS)})")
+    return dict(block)
+
+
 def _load_reference(name, d):
     """The `reference:` block (FR 8), each missing key at its REFERENCE_DEFAULTS value."""
     block = d.get("reference") or {}
@@ -356,8 +381,14 @@ def load_project(path, views_dir=VIEWS_DIR, profiles=None):
     export = d.get("export") or "godot"
     if export != "godot":
         raise ProjectError(f"{path.name}: export: {export!r} (only godot is supported)")
-    seed = int(d.get("seed", 0))
-    pose_strength = float(d.get("pose_strength", 1.0))
+    # Interfaces: top-level `seed` and `pose_strength` are the project
+    # defaults for `animate.seed` and `animate.pose_strength`; not both forms
+    animate = _load_animate(path.name, d.get("animate"), "animate")
+    for k in ("seed", "pose_strength"):
+        if k in d and k in animate:
+            raise ProjectError(f"{path.name}: {k} and animate.{k} are both set; keep one")
+    seed = int(animate.pop("seed", d.get("seed", 0)))
+    pose_strength = float(animate.pop("pose_strength", d.get("pose_strength", 1.0)))
     output = Path(d.get("output") or "out")
     rig = d.get("rig") or {}
     rig = {"neck": rig.get("neck") or "DEF-neck", "head": rig.get("head") or "DEF-head"}
@@ -377,7 +408,7 @@ def load_project(path, views_dir=VIEWS_DIR, profiles=None):
                    sprite=sprite, naming=naming, export=export, seed=seed,
                    pose_strength=pose_strength, output=output, rig=rig, workflows=workflows,
                    characters=[], animations=[], drive=_load_drive(path.name, d), profiles=profiles,
-                   reference=_load_reference(path.name, d))
+                   reference=_load_reference(path.name, d), animate=animate)
 
     # the view's camera-facing directions (FR 2): the preset's face_dirs
     # intersected with directions.generate, in generate order; a preset
@@ -514,7 +545,10 @@ def load_project(path, views_dir=VIEWS_DIR, profiles=None):
                                          post=int(a.get("post") or 0), look_down=bool(a.get("look_down", False)),
                                          state=state, seam_max=float(a.get("seam_max") or 0),
                                          directions=list(anim_dirs), workflow=wf_p, index=i,
-                                         drive_scale=drive_scale, pixel_scale=pixel_scale))
+                                         drive_scale=drive_scale, pixel_scale=pixel_scale,
+                                         facing_line=bool(a.get("facing_line", FACING_LINE_DEFAULT)),
+                                         animate=_load_animate(path.name, a.get("animate"),
+                                                               f"animations[{i}].animate")))
 
     # FR 4: a naming pattern that does not produce unique names
     seen = {}

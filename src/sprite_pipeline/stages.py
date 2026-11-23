@@ -22,7 +22,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from sprite_pipeline import config, metrics, project, stills
+from sprite_pipeline import comfy, config, metrics, project, stills
 
 PACKAGE = Path(__file__).resolve().parent
 
@@ -338,7 +338,11 @@ class StageCtx:
             cs = next(c for c in p.characters if c.name == char)
             pose = anim.prompt.replace("{who}", cs.who)
             # FR 2: a character override `<animation>-<dir>` may set the seed
-            seed = (cs.overrides.get(f"{anim.name}-{d}") or {}).get("seed", p.seed)
+            # FR 13: the animation's `animate:` block over the project's;
+            # the override seed keeps precedence over both (Interfaces)
+            vals = {**p.animate, **anim.animate}
+            seed = (cs.overrides.get(f"{anim.name}-{d}") or {}).get("seed", vals.pop("seed", p.seed))
+            pose_strength = vals.pop("pose_strength", p.pose_strength)
             # per-animation workflow override (FR 3): anim.workflow replaces
             # p.workflows["animate"] for that animation; both are absolute,
             # resolved at load (FR 1)
@@ -367,9 +371,15 @@ class StageCtx:
                     "--copy-to", str(self.clip(char, anim, d)),
                     "--prompt", stills.animate_prompt(
                         project.load_view(p.view), p.style, cs, anim, d),
-                    "--pose-prompt", pose]
-            if p.pose_strength != 1.0:
-                argv += ["--pose-strength", str(p.pose_strength)]
+                    "--pose-prompt", vals.pop("pose_prompt", pose)]
+            if pose_strength != 1.0:
+                argv += ["--pose-strength", str(pose_strength)]
+            if "negative" in vals:  # FR 12
+                argv += ["--negative", vals.pop("negative")]
+            if vals.get("lora") == "none":  # FR 14: no LoRA node, so no strength
+                vals.pop("lora"), vals.pop("lora_strength", None)
+                argv.append("--drop-lora")
+            argv += comfy.set_args(vals)  # FR 13: each set value fills sp:<k>
             return cmds + [(argv, "animate")]
         if stage == "key":
             return sprite_gen_cmds(

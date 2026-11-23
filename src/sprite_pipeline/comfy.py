@@ -36,6 +36,17 @@ SLOT_INPUTS = {
     "length": "length",
     "pose_strength": "pose_strength",
     "save": "filename_prefix",
+    "unet": "unet_name",
+    "lora": "lora_name",
+    "lora_strength": "strength_model",
+    "sampler": "sampler_name",
+    "scheduler": "scheduler",
+    "steps": "steps",
+    "shift": "shift",
+    "cfg": "cfg",
+    "pose_start_percent": "pose_start_percent",
+    "pose_end_percent": "pose_end_percent",
+    "reference_image_strength": "reference_image_strength",
 }
 
 
@@ -58,18 +69,9 @@ def load_workflow(path):
     return json.loads(path.read_text())
 
 
-def fill_slots(graph, values, workflow_name):
-    """Fill `sp:<slot>` nodes in the graph with the given values.
-
-    `values` maps slot names (without the `sp:` prefix) to values.
-    For each slot, finds the node with title `sp:<slot>` and sets the input
-    whose name is in SLOT_INPUTS. Raises WorkflowError if a slot is missing.
-    Returns the modified graph.
-
-    A node may carry multiple `sp:` titles (comma-separated in `_meta.title`),
-    in which case each slot is filled on that node; a slot titled on several
-    nodes is filled on all of them.
-    """
+def slot_nodes(graph):
+    """Map each known slot (in SLOT_INPUTS) to the ids of the nodes titled
+    `sp:<slot>` (a title may list several comma-separated `sp:` slots)."""
     slot_to_node = {}
     for node_id, node in graph.items():
         title = (node.get("_meta") or {}).get("title")
@@ -82,7 +84,45 @@ def fill_slots(graph, values, workflow_name):
             slot = part[3:]
             if slot in SLOT_INPUTS:
                 slot_to_node.setdefault(slot, []).append(node_id)
+    return slot_to_node
 
+
+def drop_lora(graph):
+    """FR 14 (`lora: none`): remove the node titled `sp:lora` and point every
+    input that read its model output at the loader's own model input. A
+    workflow without `sp:lora` is returned unchanged. Returns the graph."""
+    for node_id in slot_nodes(graph).get("lora", []):
+        src = graph[node_id]["inputs"]["model"]
+        del graph[node_id]
+        for node in graph.values():
+            for k, v in node["inputs"].items():
+                if isinstance(v, list) and len(v) == 2 and v[0] == node_id:
+                    node["inputs"][k] = src
+    return graph
+
+
+def animate_graph(workflow_path, values, no_lora=False):
+    """Load the animate workflow, drop its LoRA node when `no_lora` (FR 14),
+    and fill its slots with `values`. Returns the graph."""
+    graph = load_workflow(workflow_path)
+    if no_lora:
+        drop_lora(graph)
+    return fill_slots(graph, values, Path(workflow_path).name)
+
+
+def fill_slots(graph, values, workflow_name):
+    """Fill `sp:<slot>` nodes in the graph with the given values.
+
+    `values` maps slot names (without the `sp:` prefix) to values.
+    For each slot, finds the node with title `sp:<slot>` and sets the input
+    whose name is in SLOT_INPUTS. Raises WorkflowError if a slot is missing.
+    Returns the modified graph.
+
+    A node may carry multiple `sp:` titles (comma-separated in `_meta.title`),
+    in which case each slot is filled on that node; a slot titled on several
+    nodes is filled on all of them.
+    """
+    slot_to_node = slot_nodes(graph)
     for slot, value in values.items():
         title = f"sp:{slot}"
         if slot not in slot_to_node:
@@ -142,7 +182,8 @@ def post(api, graph, out_root, poll_interval=2.0, timeout=None):
         time.sleep(poll_interval)
 
 
-def animate(cfg, workflow_path, values, ref_image, drive_video, out_clip, log):
+def animate(cfg, workflow_path, values, ref_image, drive_video, out_clip, log,
+            no_lora=False):
     """Run the animate workflow: fill slots, upload inputs, post, collect
     outputs, and write the clip to out_clip.
 
@@ -159,8 +200,7 @@ def animate(cfg, workflow_path, values, ref_image, drive_video, out_clip, log):
     # anything the CLI placed in values["ref_image"] is replaced here)
     values = dict(values)
     values["ref_image"] = ref_name
-    graph = load_workflow(workflow_path)
-    fill_slots(graph, values, Path(workflow_path).name)
+    graph = animate_graph(workflow_path, values, no_lora)
 
     # post and collect
     files = post(api, graph, str(out_root))
@@ -252,7 +292,47 @@ def build_parser():
     n.add_argument("--pose-strength", type=float, default=1.0)
     n.add_argument("--prefix", default="anim/a")
     n.add_argument("--copy-to", required=True, help="path to write the output clip")
+    n.add_argument("--set", action="append", default=[], type=_slot_value, metavar="SLOT=JSON",
+                   help="fill sp:SLOT with the JSON value (repeatable; FR 13)")
+    n.add_argument("--drop-lora", action="store_true",
+                   help="remove the sp:lora node and bypass it (FR 14)")
     return ap
+
+
+def set_args(values):
+    """The `--set slot=<json>` arguments for `comfy animate` that fill each
+    slot in `values` (FR 13); `_slot_value` parses them back."""
+    return [a for k, v in values.items() for a in ("--set", f"{k}={json.dumps(v)}")]
+
+
+def _slot_value(text):
+    """`--set slot=<json>` -> (slot, value); the slot must be in SLOT_INPUTS."""
+    slot, sep, raw = text.partition("=")
+    if not sep or slot not in SLOT_INPUTS:
+        raise argparse.ArgumentTypeError(f"{text!r} is not <slot>=<json value> with a known slot")
+    try:
+        return slot, json.loads(raw)
+    except json.JSONDecodeError:
+        raise argparse.ArgumentTypeError(f"{text!r}: value is not JSON")
+
+
+def animate_values(a):
+    """The slot values for `comfy animate` from its parsed arguments `a`."""
+    values = {
+        "prompt": a.prompt,
+        "pose_prompt": a.pose_prompt,
+        "negative": a.negative,
+        "width": a.w,
+        "height": a.h,
+        "length": a.length,
+        "seed": a.seed,
+        "pose_strength": a.pose_strength,
+        "save": f"{a.prefix}_{a.seed}",
+        "ref_image": a.ref,  # the upload inside animate() replaces it
+        "drive_video": a.video,
+    }
+    values.update(a.set)
+    return values
 
 
 if __name__ == "__main__":
@@ -264,20 +344,8 @@ if __name__ == "__main__":
         rc = edit(cfg, a.workflow, a.prompt, a.seed, a.image, a.prefix, a.copy_to, log,
                   pose_image=a.pose_image)
     else:
-        values = {
-            "prompt": a.prompt,
-            "pose_prompt": a.pose_prompt,
-            "negative": a.negative,
-            "width": a.w,
-            "height": a.h,
-            "length": a.length,
-            "seed": a.seed,
-            "pose_strength": a.pose_strength,
-            "save": f"{a.prefix}_{a.seed}",
-            "ref_image": a.ref,  # the upload inside animate() replaces it
-            "drive_video": a.video,
-        }
-        rc = animate(cfg, a.workflow, values, a.ref, a.video, a.copy_to, log)
+        rc = animate(cfg, a.workflow, animate_values(a), a.ref, a.video, a.copy_to, log,
+                     no_lora=a.drop_lora)
     for line in log:
         print(line)
     sys.exit(rc)
