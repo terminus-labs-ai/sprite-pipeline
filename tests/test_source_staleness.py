@@ -25,7 +25,7 @@ from PIL import Image
 import mannequins
 
 from sprite_pipeline import config, project, stages
-from tests.test_review import (GEN_DIRS, TINY_PNG, ReviewFixture,
+from test_review import (GEN_DIRS, TINY_PNG, ReviewFixture,
                                make_stub_project)
 
 STILL = "stills/courier.png"
