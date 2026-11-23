@@ -18,6 +18,8 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
+from PIL import Image
+
 import mannequins
 
 from sprite_pipeline import cli, config, project, stages
@@ -750,7 +752,7 @@ class TestExecution(Env):
         if "render_drive.py" in " ".join(argv):
             frames = Path(argv[argv.index("--") + 3])
             frames.mkdir(parents=True, exist_ok=True)
-            (frames / "f0000.png").write_bytes(TINY_PNG)
+            Image.new("RGBA", (4, 4), (0, 0, 0, 0)).save(frames / "f0000.png")
         elif argv[0] == "ffmpeg":
             dst = Path(argv[-1])
             dst.parent.mkdir(parents=True, exist_ok=True)
@@ -868,7 +870,7 @@ class TestPairStatusKeyError(Env):
             if "render_drive.py" in " ".join(argv):
                 frames = Path(argv[argv.index("--") + 3])
                 frames.mkdir(parents=True, exist_ok=True)
-                (frames / "f0000.png").write_bytes(TINY_PNG)
+                Image.new("RGBA", (4, 4), (0, 0, 0, 0)).save(frames / "f0000.png")
             elif argv[0] == "ffmpeg":
                 dst = Path(argv[-1])
                 dst.parent.mkdir(parents=True, exist_ok=True)
