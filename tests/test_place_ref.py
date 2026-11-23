@@ -80,6 +80,13 @@ class TestAC6PlaceRef(Case):
         stages.place_ref(src, dst, F0, (576, 336), 1.07, GREEN, [])
         self.assert_placed(dst, 214)
 
+    def test_flat_master_is_placed_whole(self):
+        src, dst = self.tmp / "flat.png", self.tmp / "out" / "flat-ref.png"
+        Image.new("RGB", (8, 8), (200, 50, 50)).save(src)
+        stages.place_ref(src, dst, F0, (576, 336), 1.07, GREEN, [])
+        m = metrics.measure(dst)
+        self.assertEqual((m["body_h"], m["floor_y"]), (215, 300))
+
     def test_bad_height_ratio_is_a_project_error(self):
         _set(self.path, "output: out", "output: out\nreference: {height_ratio: 0}")
         with self.assertRaisesRegex(project.ProjectError, r"project\.yaml: reference\.height_ratio"):

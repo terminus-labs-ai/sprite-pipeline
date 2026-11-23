@@ -457,15 +457,16 @@ def sprite_gen_cmds(*args):
 def _figure_crop(im):
     """The figure of a direction master: its alpha bbox when it has
     transparency, else the pixels differing from the top-left corner (the
-    FR 6 measure, `metrics._figure_bbox`)."""
+    FR 6 measure, `metrics._figure_bbox`). A master with no figure is
+    placed whole."""
     import numpy
 
     if im.mode == "RGBA" and im.getchannel("A").getextrema()[0] < 255:
         return im.crop(im.getchannel("A").getbbox())
     rgb = im.convert("RGB")
     arr = numpy.asarray(rgb, dtype=numpy.int16)
-    x0, y0, x1, y1 = metrics._figure_bbox(arr, arr[0, 0])
-    return rgb.crop((x0, y0, x1 + 1, y1 + 1))
+    box = metrics._figure_bbox(arr, arr[0, 0])
+    return rgb if box is None else rgb.crop((box[0], box[1], box[2] + 1, box[3] + 1))
 
 
 def place_ref(src, dst, mannequin_f0, canvas_wh, ratio, background, log):
