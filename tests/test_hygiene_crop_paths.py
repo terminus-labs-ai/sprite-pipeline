@@ -28,18 +28,6 @@ def synthetic(w, h):
     return Image.fromarray(a.astype(numpy.uint8), "RGB")
 
 
-def expected_pad(im, frame, canvas):
-    """The base commit's pad_ref, with its inline offsets."""
-    w, h = im.size
-    x = round((w - h) / 2) if w > h else 0
-    y = round((h - w) / 2) if h > w else 0
-    sq = im.crop((x, y, w - x, h - y)).resize((frame, frame), Image.LANCZOS)
-    out = Image.new("RGB", (canvas, canvas), sq.getpixel((0, 0)))
-    off = (canvas - frame) // 2
-    out.paste(sq, (off, off))
-    return out
-
-
 class TestCentreCrop(unittest.TestCase):
     def test_ac22_r1_offsets(self):
         self.assertEqual(stills.centre_crop(832, 1024), (0, 96))
@@ -50,26 +38,6 @@ class TestCentreCrop(unittest.TestCase):
         self.assertEqual(stills.CROP_Y, 96)
         self.assertEqual(stills.CROP_Y,
                          stills.centre_crop(stills.CANVAS_W, stills.CANVAS_H)[1])
-
-    def test_ac22_r3_pad_ref_pixel_identical(self):
-        with tempfile.TemporaryDirectory() as t:
-            for w, h in [(832, 1024), (1024, 832), (832, 832)]:
-                for canvas in (704, 1152):
-                    src = Path(t) / f"{w}x{h}.png"
-                    dst = Path(t) / f"out-{w}x{h}-{canvas}.png"
-                    im = synthetic(w, h)
-                    im.save(src)
-                    stages.pad_ref(src, dst, 704, canvas, [])
-                    got = numpy.asarray(Image.open(dst).convert("RGB"))
-                    want = numpy.asarray(expected_pad(im, 704, canvas))
-                    self.assertTrue(numpy.array_equal(got, want),
-                                    f"{w}x{h} on {canvas}")
-
-    def test_ac22_r4_pad_ref_uses_centre_crop(self):
-        src = inspect.getsource(stages.pad_ref)
-        self.assertIn("stills.centre_crop(", src)
-        self.assertNotIn("round((w - h) / 2)", src)
-        self.assertNotIn("round((h - w) / 2)", src)
 
 
 class TestGuideEditPaths(unittest.TestCase):

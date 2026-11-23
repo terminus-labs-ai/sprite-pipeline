@@ -12,6 +12,7 @@ ap.add_argument("--out", required=True)
 ap.add_argument("--view", type=int, default=3)
 ap.add_argument("--fps", type=int, default=16)
 ap.add_argument("--scale", type=float, help="fixed source-to-game pixel ratio for every set (overrides --height)")
+ap.add_argument("--set-scale", action="append", default=[], help="name=scale: that set's source-to-game pixel ratio (overrides --scale)")
 ap.add_argument("--accent-boost", type=int, default=0, help="repeat saturated, bright pixels N times when building the palette")
 a = ap.parse_args()
 
@@ -37,9 +38,10 @@ for spec in a.set:
     sets[name] = [Image.open(f).convert("RGBA") for f in files]
 
 ref = Image.open(a.ref).convert("RGBA") if a.ref else None
+set_scale = {n: float(v) for n, v in (s.split("=", 1) for s in a.set_scale)}
 small = {}
 for name, frames in sets.items():
-    scale = a.scale or a.height / figure_h(frames[0])  # --scale keeps every move at one size; --ref drives the palette
+    scale = set_scale.get(name) or a.scale or a.height / figure_h(frames[0])  # --scale keeps every move at one size; --ref drives the palette
     small[name] = [shrink(f, scale) for f in frames]
 
 palette_src = [shrink(ref, a.height / figure_h(ref))] if ref else [s for fr in small.values() for s in fr]

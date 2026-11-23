@@ -40,6 +40,9 @@ PRONOUNS = set(DEFAULT_WHO)
 # `drive_scale`, and the auto canvas's margin and aspect (FR 4)
 DRIVE_DEFAULTS = {"background": [30, 202, 24], "render_size": 1152, "scale": 0.605,
                   "margin": 1.3, "aspect": [16, 9]}
+# the `reference:` block defaults (spec FR 8): the placed reference's body
+# height over the scaled mannequin's f0 body height
+REFERENCE_DEFAULTS = {"height_ratio": 1.07}
 
 
 class ProjectError(ValueError):
@@ -70,6 +73,11 @@ class Drive:
 
 
 @dataclass
+class Reference:
+    height_ratio: float = REFERENCE_DEFAULTS["height_ratio"]
+
+
+@dataclass
 class Character:
     name: str
     still: Path
@@ -78,6 +86,7 @@ class Character:
     who: str = ""
     face_dirs: list = field(default_factory=list)
     overrides: dict = field(default_factory=dict)
+    height_scale: dict = field(default_factory=dict)  # direction -> pixelize factor (FR 10)
 
     def look(self, d):
         """The character's description for direction `d`."""
@@ -104,6 +113,7 @@ class Animation:
     directions: list = field(default_factory=list)
     workflow: Path = None  # per-animation override of workflows.animate (FR 3)
     drive_scale: float = None  # overrides drive.scale for this animation (FR 3)
+    pixel_scale: float = None  # the pixelize scale for this animation (FR 9)
     index: int = 0        # position in the project's animations list (FR 5 message)
 
     @property
@@ -132,6 +142,7 @@ class Project:
     drive: Drive = field(default_factory=lambda: Drive(tuple(DRIVE_DEFAULTS["background"]),
                                                        DRIVE_DEFAULTS["render_size"],
                                                        DRIVE_DEFAULTS["scale"]))
+    reference: Reference = field(default_factory=Reference)
     # the mannequin-profile map the load gate checked (FR 4, FR 14): the map
     # `anchor_profile` anchors with, so gate and anchor never disagree
     profiles: dict = field(default=None, repr=False, compare=False)
@@ -157,6 +168,14 @@ class Project:
     def drive_scale(self, anim):
         """FR 3: the animation's `drive_scale`, else the project's `drive.scale`."""
         return anim.drive_scale if anim.drive_scale is not None else self.drive.scale
+
+    def pixel_scale(self, anim, char, d):
+        """FR 9, 10: the animation's `pixel_scale`, else `sprite.scale /
+        drive scale`, times the character's `height_scale` for `d` (a
+        mirrored direction takes its source's factor; 1.0 when not listed)."""
+        base = (anim.pixel_scale if anim.pixel_scale is not None
+                else self.sprite.scale / self.drive_scale(anim))
+        return base * char.height_scale.get(self.mirror.get(d, d), 1.0)
 
     def drive_key(self, anim, glb_bytes):
         """Cache key over the source file content, the action and the drive params (FR 10, dec: dec-629).
@@ -247,6 +266,28 @@ def _load_drive(name, d):
                  aspect=tuple(aspect))
 
 
+def _load_reference(name, d):
+    """The `reference:` block (FR 8), each missing key at its REFERENCE_DEFAULTS value."""
+    block = d.get("reference") or {}
+    if not isinstance(block, dict):
+        raise ProjectError(f"{name}: reference: must be a mapping")
+    return Reference(height_ratio=_positive(name, "reference.height_ratio",
+                                            block.get("height_ratio", REFERENCE_DEFAULTS["height_ratio"])))
+
+
+def _load_height_scale(name, i, c):
+    """`characters[i].height_scale` (FR 10): a map of known directions to positive factors."""
+    hs = c.get("height_scale") or {}
+    key = f"characters[{i}].height_scale"
+    if not isinstance(hs, dict):
+        raise ProjectError(f"{name}: {key}: must be a mapping of direction to factor")
+    for x, v in hs.items():
+        if x not in KNOWN_DIRS:
+            raise ProjectError(f"{name}: {key}.{x}: unknown direction {x!r}")
+        _positive(name, f"{key}.{x}", v)
+    return {x: float(v) for x, v in hs.items()}
+
+
 def _positive(name, key, v):
     if isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0:
         raise ProjectError(f"{name}: {key}: {v!r} is not a positive number")
@@ -335,7 +376,8 @@ def load_project(path, views_dir=VIEWS_DIR, profiles=None):
     proj = Project(path=path, style=d.get("style") or "", view=view, generate=generate, mirror=mirror,
                    sprite=sprite, naming=naming, export=export, seed=seed,
                    pose_strength=pose_strength, output=output, rig=rig, workflows=workflows,
-                   characters=[], animations=[], drive=_load_drive(path.name, d), profiles=profiles)
+                   characters=[], animations=[], drive=_load_drive(path.name, d), profiles=profiles,
+                   reference=_load_reference(path.name, d))
 
     # the view's camera-facing directions (FR 2): the preset's face_dirs
     # intersected with directions.generate, in generate order; a preset
@@ -383,7 +425,8 @@ def load_project(path, views_dir=VIEWS_DIR, profiles=None):
         proj.characters.append(Character(name=name, still=still_p, describe=describe,
                                          pronoun=c["pronoun"], who=c.get("who") or DEFAULT_WHO[c["pronoun"]],
                                          face_dirs=list(face_dirs),
-                                         overrides=dict(c.get("overrides") or {})))
+                                         overrides=dict(c.get("overrides") or {}),
+                                         height_scale=_load_height_scale(path.name, i, c)))
 
     # animations (FR 3; FR 4: missing source, no #<Action>, clip_frames, naming unique)
     for i, a in enumerate(d.get("animations") or []):
@@ -462,6 +505,8 @@ def load_project(path, views_dir=VIEWS_DIR, profiles=None):
             wf_p = None
         drive_scale = (_positive(path.name, f"animations[{i}].drive_scale", a["drive_scale"])
                        if a.get("drive_scale") is not None else None)
+        pixel_scale = (_positive(path.name, f"animations[{i}].pixel_scale", a["pixel_scale"])
+                       if a.get("pixel_scale") is not None else None)
         proj.animations.append(Animation(name=name, source=src_p, action=action, frames=frames,
                                          loop=bool(a.get("loop", False)), prompt=a.get("prompt") or "",
                                          start=start, clip_frames=clip,
@@ -469,7 +514,7 @@ def load_project(path, views_dir=VIEWS_DIR, profiles=None):
                                          post=int(a.get("post") or 0), look_down=bool(a.get("look_down", False)),
                                          state=state, seam_max=float(a.get("seam_max") or 0),
                                          directions=list(anim_dirs), workflow=wf_p, index=i,
-                                         drive_scale=drive_scale))
+                                         drive_scale=drive_scale, pixel_scale=pixel_scale))
 
     # FR 4: a naming pattern that does not produce unique names
     seen = {}

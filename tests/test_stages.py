@@ -909,19 +909,20 @@ class TestPairStatusKeyError(Env):
 
 class TestAC4AnimateRealSize(Env):
     """death-repro FR 6: the animate argv carries the auto canvas's W and H;
-    the reference is padded to max(W, H) until slice 3 replaces pad_ref."""
+    the reference is placed on the mannequin's f0 on that canvas (FR 8)."""
 
     def test_r1_auto_canvas_576x336_for_death_se(self):
         f = ProjectFixture(self.tmp)
         p = project.load_project(f.project)
         ctx = stages.StageCtx(p, config.load())
         ctx.canvas = lambda char, anim: (576, 336)  # the FR 4 canvas (tested in test_canvas)
+        ctx.mannequin_f0 = lambda char, anim, d: (250, 100, 350, 300)
         cmds = ctx.plan_pair("courier", p.animation("death"), "se", "animate")
-        pad, argv = cmds[0][0], cmds[-1][0]
+        place, argv = cmds[0][0], cmds[-1][0]
         self.assertEqual(argv[argv.index("--w"):argv.index("--w") + 4], ["--w", "576", "--h", "336"])
-        self.assertEqual(pad[0], "pad_ref")
-        self.assertEqual(pad[3:], ("704", "576"))
-        self.assertEqual(argv[argv.index("--ref") + 1], pad[2])
+        self.assertEqual(place[0], "place_ref")
+        self.assertEqual(place[3:], ("250", "100", "350", "300", "576", "336", "1.07", "30", "202", "24"))
+        self.assertEqual(argv[argv.index("--ref") + 1], place[2])
 
 
 if __name__ == "__main__":
