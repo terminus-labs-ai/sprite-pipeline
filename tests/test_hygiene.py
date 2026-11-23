@@ -176,19 +176,22 @@ class TestOneElevationDefinition(unittest.TestCase):
                      "head_lift": anim.head_lift,
                      "rig": {"neck": proj.rig["neck"], "head": proj.rig["head"]},
                      "elev": 45, "frame_size": proj.sprite.frame_size,
+                     "background": list(proj.drive.background),
+                     "render_size": proj.drive.render_size,
+                     "drive_scale": proj.drive_scale(anim),
                      **({"canvas": anim.canvas} if anim.canvas
                         and anim.canvas != proj.sprite.frame_size else {})},
                     sort_keys=True)
                 return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
-            pinned = {  # drive_key per animation, captured at the base commit
-                "run": "d10a9fa3b7c2ca22", "punch": "af493d1482ff68b6",
-                "idle": "1e10e8d03b0fe447", "walk": "0e2367000fd45664",
-                "sneak": "d0401da6c31b3ef8", "crouch_idle": "c94ac4321f6739f3",
-                "hack": "74b25e3d1e6a612f", "interact": "6cf5dbdfdfb1beaa",
-                "jab": "be3f13aa8e524d9f", "pistol_shoot": "f820df3ea51e1330",
-                "hit": "4d8dfb5d489a1306", "death": "1329fba138e6fccc",
-                "roll": "41d262d0423e92ee",
+            pinned = {  # drive_key per animation with the death-repro drive values
+                "run": "1252116c92ff21b9", "punch": "407b8788d56d2fd2",
+                "idle": "cde06f97e177eb3f", "walk": "217be70ffa8175de",
+                "sneak": "f86fa21cf7e3e751", "crouch_idle": "454d88cf5db3cb64",
+                "hack": "c3c5f3d3b238bc74", "interact": "d93cea6277529d3a",
+                "jab": "c5c81a6985296b41", "pistol_shoot": "e398da04b4b0cb9f",
+                "hit": "74a0ed65d44428e5", "death": "31aae25f0978c8a5",
+                "roll": "5966dce594bcb782",
             }
             self.assertEqual(set(pinned), {a.name for a in p.animations})
             for anim in p.animations:

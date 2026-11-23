@@ -280,11 +280,10 @@ class StageCtx:
             size = p.drive.render_size
             argv += [f"res={size}", f"ortho={DRIVE_ORTHO * size / p.sprite.frame_size:.6f}"]
             # FR 1, 3: the transparent frames, scaled by the drive scale and
-            # composited on drive.background (a Python step, run as a module)
+            # composited on drive.background: an in-process step like copy_file
             keyed = frames.parent / "composited"
-            composite = [sys.executable, "-m", "sprite_pipeline.stages", "composite-drive",
-                         str(frames), str(keyed), str(p.sprite.frame_size),
-                         f"{p.drive_scale(anim):g}", *(str(c) for c in p.drive.background)]
+            composite = ("composite_drive", str(frames), str(keyed), str(p.sprite.frame_size),
+                         f"{p.drive_scale(anim):g}", *(str(c) for c in p.drive.background))
             cache = self.cache_mp4(char, anim, d)
             cmds = [(argv, "blender"), (composite, "composite-drive"),
                     (["ffmpeg", "-v", "error", "-y", "-framerate", str(p.sprite.fps),
@@ -428,7 +427,7 @@ def pad_ref(src, dst, frame, canvas, log):
     log.append(f"pad_ref {src} -> {dst} ({frame} on {canvas})")
 
 
-def composite_drive(src_dir, dst_dir, frame_size, scale, background):
+def composite_drive(src_dir, dst_dir, frame_size, scale, background, log=None):
     """FR 1, 3: each transparent drive frame `src_dir/f*.png`, resized by
     `scale` (rounded), centred on a frame_size square of the flat
     `background` colour and written as RGB to `dst_dir` under the same name.
@@ -445,15 +444,8 @@ def composite_drive(src_dir, dst_dir, frame_size, scale, background):
         layer.paste(im, ((frame_size - im.width) // 2, (frame_size - im.height) // 2))
         out = Image.alpha_composite(Image.new("RGBA", layer.size, background + (255,)), layer)
         out.convert("RGB").save(dst_dir / f.name)
-
-
-def main(argv=None):
-    """`python -m sprite_pipeline.stages composite-drive SRC DST FRAME SCALE R G B`."""
-    a = sys.argv[1:] if argv is None else argv
-    if len(a) != 8 or a[0] != "composite-drive":
-        sys.exit("usage: python -m sprite_pipeline.stages composite-drive SRC DST FRAME SCALE R G B")
-    composite_drive(a[1], a[2], a[3], a[4], a[5:8])
-    return 0
+    if log is not None:
+        log.append(f"composite_drive {src_dir} -> {dst_dir} (scale {scale:g} on {background})")
 
 
 def copy_file(src, dst, log):
@@ -486,7 +478,3 @@ def quote(a):
 # StageCtx.run_program dispatches "export" to it. These re-exports keep
 # stages.do_export / stages.write_tres resolving for existing callers.
 from sprite_pipeline.export_godot import do_export, write_tres  # noqa: E402,F401
-
-
-if __name__ == "__main__":
-    sys.exit(main())

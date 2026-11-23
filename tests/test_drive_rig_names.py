@@ -56,20 +56,21 @@ class TestDriveArgv(unittest.TestCase):
         self.assertEqual(proj.rig, {"neck": "neck_01", "head": "head_01"})
         argv = _drive_argv(ctx, proj, "run")
         self.assertEqual(argv, self._expected_head(ctx, proj, "run", "Jog_Fwd_Loop", "2", "1", "0")
-                         + ["25", "--neck", "neck_01", "--head", "head_01"])
+                         + ["25", "--neck", "neck_01", "--head", "head_01", "res=1152", "ortho=4.909091"])
 
     def test_r2_default_names_flow_through_stages(self):
         ctx, proj = _load(self._t.name)
         argv = _drive_argv(ctx, proj, "run")
         self.assertEqual(argv, self._expected_head(ctx, proj, "run", "Jog_Fwd_Loop", "2", "1", "0")
-                         + ["25", "--neck", "DEF-neck", "--head", "DEF-head"])
+                         + ["25", "--neck", "DEF-neck", "--head", "DEF-head", "res=1152", "ortho=4.909091"])
 
     def test_r3_look_down_animation_carries_no_bone_flags(self):
         ctx, proj = _load(self._t.name, CUSTOM_RIG)
         argv = _drive_argv(ctx, proj, "hack")
         # byte-identical to the argv before the rig flags existed: no pitch,
         # no names, even though the project names custom bones
-        self.assertEqual(argv, self._expected_head(ctx, proj, "hack", "Fixing_Kneeling", "1", "0", "0"))
+        self.assertEqual(argv, self._expected_head(ctx, proj, "hack", "Fixing_Kneeling", "1", "0", "0")
+                         + ["res=1152", "ortho=4.909091"])
         self.assertNotIn("--neck", argv)
         self.assertNotIn("--head", argv)
         self.assertNotIn("neck_01", argv)

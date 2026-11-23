@@ -128,6 +128,10 @@ def _print_plan_line(char, stage, argv, out):
     if argv[0] == "copy_file":  # in-process step, never a subprocess
         print(f"[{char}] stage={stage} (python copy)  {argv[1]} -> {argv[2]}", file=out)
         return
+    if argv[0] == "composite_drive":  # in-process step, never a subprocess
+        print(f"[{char}] stage={stage} (python composite scale {argv[4]} on {','.join(argv[5:8])})  "
+              f"{argv[1]} -> {argv[2]}", file=out)
+        return
     if argv[0] == "pad_ref":  # in-process step, never a subprocess
         print(f"[{char}] stage={stage} (python pad {argv[3]} on {argv[4]})  {argv[1]} -> {argv[2]}", file=out)
         return
@@ -323,6 +327,9 @@ def run_cmds(ctx, cmds, log, out=None):
     for cmd_argv, label in cmds:
         if cmd_argv[0] == "copy_file":
             stages.copy_file(cmd_argv[1], cmd_argv[2], log)
+            continue
+        if cmd_argv[0] == "composite_drive":
+            stages.composite_drive(cmd_argv[1], cmd_argv[2], cmd_argv[3], cmd_argv[4], cmd_argv[5:8], log)
             continue
         if cmd_argv[0] == "pad_ref":
             stages.pad_ref(*cmd_argv[1:], log)

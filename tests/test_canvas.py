@@ -65,11 +65,12 @@ class TestPlans(Case):
     def test_drive_renders_wider_at_the_same_pixel_scale(self):
         ctx, p = self.ctx(960)
         argv = ctx.plan_pair("courier", p.animation("punch"), "s", "drive")[0][0]
-        self.assertIn("res=960", argv)
+        # drive.render_size (death-repro FR 2) sets res=/ortho=, not canvas
+        self.assertIn("res=1152", argv)
         ortho = [x for x in argv if x.startswith("ortho=")][0]
-        self.assertAlmostEqual(float(ortho[6:]), 3.0 * 960 / 704, places=4)
+        self.assertAlmostEqual(float(ortho[6:]), 3.0 * 1152 / 704, places=4)
         run = ctx.plan_pair("courier", p.animation("run"), "s", "drive")[0][0]
-        self.assertFalse([x for x in run if x.startswith(("res=", "ortho="))])
+        self.assertIn("res=1152", run)
 
     def test_drive_key_changes_with_canvas(self):
         a = self.load().animation("punch")
