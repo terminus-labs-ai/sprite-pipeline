@@ -133,8 +133,9 @@ class TestAC2RenderSizeAndScale(Case):
         stages.composite_drive(src, dst, step[3], step[4:7], step[7], step[8:10], [src])
         out = Image.open(dst / "f0000.png")
         # FR 4 auto canvas of a 697 x 697 union at margin 1.3, 16:9:
-        # H = ceil16(906.1) = 912, W = ceil16(max(906.1, 1621.3)) = 1632
-        self.assertEqual(out.size, (1632, 912))
+        # H = ceil16(906.1) = 912, W = ceil16(max(906.1, 1621.3)) = 1632,
+        # H = max(912, ceil16(918)) = 928
+        self.assertEqual(out.size, (1632, 928))
         red = [(x, y) for y in range(out.height) for x in range(out.width)
                if out.getpixel((x, y)) != GREEN]
         xs = [x for x, _ in red]

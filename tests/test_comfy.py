@@ -483,14 +483,15 @@ class TestAC5GoStops(unittest.TestCase):
         code, out = self.go(OOM_STATUS)
         self.assertEqual(code, 1, out)
         # union (120, 200) x 121/200 = (72.6, 121): H = ceil16(157.3) = 160,
-        # W = ceil16(max(94.4, 284.4)) = 288
-        self.assertIn("death-ne: out of GPU memory at 288x160 (drive_scale 0.605); "
+        # W = ceil16(max(94.4, 284.4)) = 288,
+        # H = max(160, ceil16(162)) = 176
+        self.assertIn("death-ne: out of GPU memory at 288x176 (drive_scale 0.605); "
                       "lower animations[11].drive_scale in project.yaml", out)
 
     def test_r2_allocation_on_device_gives_the_same_message(self):
         code, out = self.go(ALLOC_STATUS)
         self.assertEqual(code, 1, out)
-        self.assertIn("death-ne: out of GPU memory at 288x160", out)
+        self.assertIn("death-ne: out of GPU memory at 288x176", out)
 
     def test_r3_other_errors_print_no_oom_message(self):
         code, out = self.go(OTHER_STATUS)

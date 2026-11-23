@@ -466,10 +466,11 @@ def _ceil16(v):
 def canvas_for(union_wh, margin, aspect):
     """FR 4: the canvas for a motion whose scaled union bbox is `union_wh`:
     H = margin x union height, W = max(margin x union width, H x aspect),
-    each rounded up to a multiple of 16."""
+    then H = max(H, W / aspect), each rounded up to a multiple of 16."""
     uw, uh = union_wh
     h = _ceil16(margin * uh)
-    return _ceil16(max(margin * uw, h * aspect[0] / aspect[1])), h
+    w = _ceil16(max(margin * uw, h * aspect[0] / aspect[1]))
+    return w, max(h, _ceil16(w * aspect[1] / aspect[0]))
 
 
 def _union(frame_dirs, scale):

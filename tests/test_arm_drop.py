@@ -135,7 +135,7 @@ class TestMannequinPlan(unittest.TestCase):
         # the key without the drop is the pre-amendment-13 key, computed
         # independently over the pre-amendment-13 payload (a drop-only
         # change to the payload cannot reproduce it)
-        self.assertEqual(without, "3b2062e585eeae75")
+        self.assertEqual(without, "aed88cd035dab391")
 
     def test_r3_animation_plans_carry_no_arm_drop(self):
         with tempfile.TemporaryDirectory() as t:

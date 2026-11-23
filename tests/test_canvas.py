@@ -21,30 +21,31 @@ from sprite_pipeline import config, metrics, project, stages, stills
 
 class TestAC3CanvasFor(unittest.TestCase):
     """The pure FR 4 rule: H = ceil16(margin x union h), W = ceil16(max(margin
-    x union w, H x aspect)). Expected values are worked by hand."""
+    x union w, H x aspect)), then H = max(H, ceil16(W x 9 / 16)). Expected
+    values are worked by hand."""
 
     def test_r1_tall_union_pads_width_to_16_9(self):
-        # H = ceil16(390) = 400; W = ceil16(max(260, 711.1)) = 720
-        self.assertEqual(stages.canvas_for((200, 300), 1.3, (16, 9)), (720, 400))
+        # H = ceil16(390) = 400; W = ceil16(max(260, 711.1)) = 720;
+        # H = max(400, ceil16(405)) = 416
+        self.assertEqual(stages.canvas_for((200, 300), 1.3, (16, 9)), (720, 416))
 
     def test_r2_measured_sp64_unions_at_0_605(self):
         """The prototype's c1152 drives (sp62/dirs/rgba-drives/c1152-<d>):
         raw union px at 1152, scaled by round(1152 x 0.605) / 1152 = 697 /
-        1152. ESCALATED: the case table expects heights 336/336/320/432/464,
-        which the prototype got from an extra `H = max(H, ceil16(W x 9 /
-        16))` step that FR 4 (and rows r1/r3) do not have; this asserts FR 4."""
+        1152."""
         k = 697 / 1152
         raw = {"se": (490, 389), "s": (244, 396), "e": (499, 383),
                "ne": (454, 541), "n": (244, 563)}
-        want = {"se": (576, 320), "s": (576, 320), "e": (544, 304),
-                "ne": (768, 432), "n": (800, 448)}
+        want = {"se": (576, 336), "s": (576, 336), "e": (544, 320),
+                "ne": (768, 432), "n": (800, 464)}
         for d, (w, h) in raw.items():
             with self.subTest(d=d):
                 self.assertEqual(stages.canvas_for((w * k, h * k), 1.3, (16, 9)), want[d])
 
     def test_r3_wide_union_width_follows_the_margin(self):
-        # H = ceil16(130) = 144; W = ceil16(max(1300, 256)) = 1312
-        self.assertEqual(stages.canvas_for((1000, 100), 1.3, (16, 9)), (1312, 144))
+        # H = ceil16(130) = 144; W = ceil16(max(1300, 256)) = 1312;
+        # H = max(144, ceil16(738)) = 752
+        self.assertEqual(stages.canvas_for((1000, 100), 1.3, (16, 9)), (1312, 752))
 
 
 # AC3-r4/r5 drives: 200 px square transparent frames, one opaque block each,
@@ -86,8 +87,8 @@ class TestAC3OneCanvasPerAnimation(DriveCase):
     def test_r4_all_directions_share_the_union_canvas(self):
         ctx, p = self.ctx()
         death = p.animation("death")
-        # each direction alone: s (10, 80) -> (208, 112); se (60, 40) -> (128, 64)
-        self.assertEqual(stages.canvas_for((10, 80), 1.3, (16, 9)), (208, 112))
+        # each direction alone: s (10, 80) -> (208, 128); se (60, 40) -> (128, 80)
+        self.assertEqual(stages.canvas_for((10, 80), 1.3, (16, 9)), (208, 128))
         self.render(ctx, death)
         # the union (60, 100): H = ceil16(130) = 144, W = ceil16(max(78, 256)) = 256
         self.assertEqual(ctx.canvas("courier", death), (256, 144))
@@ -124,8 +125,9 @@ class TestAC3OneCanvasPerAnimation(DriveCase):
         death = p.animation("death")
         self.assertEqual((p.drive.margin, p.drive.aspect), (1.5, (4, 3)))
         self.render(ctx, death)
-        # union (60, 100): H = ceil16(150) = 160, W = ceil16(max(90, 213.3)) = 224
-        self.assertEqual(ctx.canvas("courier", death), (224, 160))
+        # union (60, 100): H = ceil16(150) = 160, W = ceil16(max(90, 213.3)) = 224,
+        # H = max(160, ceil16(168)) = 176
+        self.assertEqual(ctx.canvas("courier", death), (224, 176))
         self.assertNotEqual(p.drive_key(death, b"x"), k0)
         for block in ("{margin: 1.5}", "{aspect: [4, 3]}"):
             with self.subTest(block=block):
