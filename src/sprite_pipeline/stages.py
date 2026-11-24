@@ -67,6 +67,7 @@ class StageCtx:
         self.env["RW"] = str(proj.sprite.frame_size)
         self.env["RH"] = str(proj.sprite.frame_size)
         self._drive_keys = {}
+        self._sizes = {}
 
     def drive_key(self, anim):
         """The slice-1 cache key: GLB content, action and drive params, never the path."""
@@ -101,6 +102,33 @@ class StageCtx:
                              p.drive.aspect, [self.frames_dir(char, anim, o)
                                               for o in self.union_dirs(anim, d)],
                              p.drive.background)
+
+    def size_match(self, char, anim, d):
+        """FR 17: (auto factor, r) of the (anim, d) set, measured on the
+        source direction of a mirror: r is the median over the cycle frames
+        of (frame body height / mannequin body height on drive frame
+        `anim.start + k`), frames with no figure on either side left out;
+        (1.0, None) when no frame is measurable."""
+        key = (char, anim.name, d)
+        if key not in self._sizes:
+            src = self.project.mirror.get(d, d)
+            r = None
+            if self.canvas(char, anim) is not None:
+                drives = sorted(self.frames_dir(char, anim, src).glob("f*.png"))
+                cycle = sorted((self.loops_dir(char, anim, src) / "cycle").glob("*.png"))
+                r = size_ratio(cycle, anim.start, lambda i: self._mannequin_h(drives, i, char, anim, src))
+            target = self.project.reference.height_ratio
+            self._sizes[key] = (1.0 if r is None else target / r, r)
+        return self._sizes[key]
+
+    def _mannequin_h(self, drives, i, char, anim, d):
+        if not 0 <= i < len(drives):
+            return None
+        p = self.project
+        b = drive_frame_bbox(drives[i], p.drive_scale(anim), p.drive.margin, p.drive.aspect,
+                             [self.frames_dir(char, anim, o) for o in self.union_dirs(anim, d)],
+                             p.drive.background)
+        return None if b is None else b[3] - b[1] + 1
 
     # -- per (character, animation, dir) locations
     def cache_mp4(self, char, anim, d):
@@ -421,9 +449,10 @@ class StageCtx:
             for d in dirs:  # dir-major, matching batch_dir8.sh's set order
                 for n in anim_names:
                     anim = p.animation(n)
-                    # FR 9, 10: one scale per set, constant over its clip
+                    # FR 9, 10, 17, 18: one scale per set, constant over its clip
+                    auto, _ = self.size_match(char, anim, d)
                     argv += ["--set", f"{d}-{n}={self.loops_dir(char, anim, d) / 'cycle'}",
-                             "--set-scale", f"{d}-{n}={p.pixel_scale(anim, cs, d):.6g}"]
+                             "--set-scale", f"{d}-{n}={p.pixel_scale(anim, cs, d, auto):.6g}"]
             return [(argv, "pixel")]
         if stage == "export":
             return []  # pure python, no subprocess
@@ -447,6 +476,41 @@ def size_note(ratio):
         return "n/a CHECK"
     flag = " CHECK" if not SIZE_CHECK_LOW <= ratio <= SIZE_CHECK_HIGH else ""
     return f"{ratio:.2f}{flag}"
+
+
+def size_line(char, d, anim_name, r, target):
+    """FR 19: the size log of one pixel set: `size x<target/r>`, plus
+    ` CHECK` when r / target is outside SIZE_CHECK_LOW-SIZE_CHECK_HIGH; an
+    unmeasurable set (r None) reads `size n/a CHECK`."""
+    head = f"{char} {d}-{anim_name}: size"
+    if r is None:
+        return f"{head} n/a CHECK"
+    flag = " CHECK" if size_note(r / target).endswith("CHECK") else ""
+    return f"{head} x{target / r:.2f}{flag}"
+
+
+def _alpha_h(f):
+    """The alpha bbox height of a keyed frame (pixelize's figure_h); None
+    when it has no figure."""
+    from PIL import Image
+
+    b = Image.open(f).convert("RGBA").getchannel("A").point(lambda v: 255 if v > 127 else 0).getbbox()
+    return None if b is None else b[3] - b[1]
+
+
+def size_ratio(cycle_files, start, mannequin_h):
+    """FR 17: the median over `cycle_files` of (frame body height /
+    `mannequin_h(start + k)`) for cycle frame k; a frame with no figure on
+    either side is left out. None when no frame is measurable."""
+    import statistics
+
+    ratios = []
+    for k, f in enumerate(cycle_files):
+        h = _alpha_h(f)
+        m = mannequin_h(start + k) if h else None
+        if m:
+            ratios.append(h / m)
+    return statistics.median(ratios) if ratios else None
 
 
 def sprite_gen_exe():
@@ -573,15 +637,20 @@ def _composite_frame(f, scale, layout, background):
 
 
 def drive_f0_bbox(src_dir, scale, margin, aspect, union_dirs, background):
+    """FR 8: `drive_frame_bbox` of the first frame of `src_dir`."""
+    f0 = sorted(Path(src_dir).glob("f*.png"))[0]
+    return drive_frame_bbox(f0, scale, margin, aspect, union_dirs, background)
+
+
+def drive_frame_bbox(frame, scale, margin, aspect, union_dirs, background):
     """FR 8: the bbox (x0, y0, x1, y1, inclusive) of the scaled mannequin in
-    the first frame of `src_dir` as `composite_drive` draws it on
+    the drive `frame` as `composite_drive` draws it on
     `background`, measured the FR 6 way (`metrics._figure_bbox`); None when
     nothing differs from the background."""
     import numpy
 
     bg = tuple(int(c) for c in background)
-    f0 = sorted(Path(src_dir).glob("f*.png"))[0]
-    out = _composite_frame(f0, float(scale), _drive_layout(scale, margin, aspect, union_dirs), bg)
+    out = _composite_frame(frame, float(scale), _drive_layout(scale, margin, aspect, union_dirs), bg)
     return metrics._figure_bbox(numpy.asarray(out, dtype=numpy.int16), numpy.array(bg))
 
 

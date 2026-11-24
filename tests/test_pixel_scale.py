@@ -110,6 +110,17 @@ class TestAC7PixelScale(Case):
             project.load_project(self.path)
 
 
+class TestAC13AutoComposition(Case):
+    """AC 13 (FR 18): pixel_scale = base x auto x height_scale."""
+
+    def test_auto_multiplies_before_height_scale(self):
+        self.height_scale("{se: 0.96}")
+        p = project.load_project(self.path)
+        cs, death = p.characters[0], p.animation("death")
+        self.assertAlmostEqual(p.pixel_scale(death, cs, "sw", 0.8), BASE * 0.8 * 0.96, places=6)
+        self.assertAlmostEqual(p.pixel_scale(death, cs, "s", 0.8), BASE * 0.8, places=6)
+
+
 class TestPixelizeSetScale(unittest.TestCase):
     """The real pixelize module applies each set's --set-scale."""
 

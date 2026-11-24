@@ -185,13 +185,14 @@ class Project:
         """FR 3: the animation's `drive_scale`, else the project's `drive.scale`."""
         return anim.drive_scale if anim.drive_scale is not None else self.drive.scale
 
-    def pixel_scale(self, anim, char, d):
-        """FR 9, 10: the animation's `pixel_scale`, else `sprite.scale /
-        drive scale`, times the character's `height_scale` for `d` (a
-        mirrored direction takes its source's factor; 1.0 when not listed)."""
+    def pixel_scale(self, anim, char, d, auto=1.0):
+        """FR 9, 10, 18: the animation's `pixel_scale`, else `sprite.scale /
+        drive scale`, times the FR 17 `auto` size factor, times the
+        character's `height_scale` for `d` (a mirrored direction takes its
+        source's factor; 1.0 when not listed)."""
         base = (anim.pixel_scale if anim.pixel_scale is not None
                 else self.sprite.scale / self.drive_scale(anim))
-        return base * char.height_scale.get(self.mirror.get(d, d), 1.0)
+        return base * auto * char.height_scale.get(self.mirror.get(d, d), 1.0)
 
     def drive_key(self, anim, glb_bytes):
         """Cache key over the source file content, the action and the drive params (FR 10, dec: dec-629).

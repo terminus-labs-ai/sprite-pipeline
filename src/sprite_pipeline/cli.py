@@ -752,6 +752,11 @@ def _go(args, out, load_kwargs=None):
             if done and not args["force"]:
                 print(f"[{char}] [{s}] skip", file=out)
                 continue
+            if s == "pixel":  # FR 19: one size line per set; never stops the run
+                for d in dirs:
+                    for n in anim_names:
+                        _, r = ctx.size_match(char, proj.animation(n), d)
+                        print(stages.size_line(char, d, n, r, proj.reference.height_ratio), file=out)
             if dry:
                 for cmd_argv, label in ctx.plan_kit_stage(char, s, anim_names, dirs):
                     _print_plan_line(char, s, cmd_argv, out)
