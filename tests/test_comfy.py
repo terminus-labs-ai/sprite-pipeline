@@ -64,7 +64,7 @@ class TestSlotFilling(unittest.TestCase):
         self.assertEqual(result["24"]["inputs"]["filename_prefix"], "anim/42")
         # other nodes unchanged (spot check)
         self.assertEqual(result["1"]["class_type"], "UNETLoader")
-        self.assertEqual(result["2"]["class_type"], "LoraLoaderModelOnly")
+        self.assertNotIn("2", result)  # FR 15: no LoRA node
 
     def test_r2_edit_workflow_slots_filled(self):
         """AC6-r2: shipped `edit.json` + prompt, seed, ref_image, save →

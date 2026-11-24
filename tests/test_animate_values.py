@@ -27,6 +27,11 @@ TITLES = {"1": "sp:unet", "2": "sp:lora,sp:lora_strength", "3": "sp:shift",
 def titled_graph(drop=()):
     """The shipped graph with TITLES applied, minus the titles in `drop`."""
     g = json.loads(SHIPPED.read_text())
+    # the shipped graph has no LoRA node (FR 15): put one back between the
+    # loader and ModelSamplingSD3 so the LoRA slots stay exercised
+    g["2"] = {"class_type": "LoraLoaderModelOnly",
+              "inputs": {"model": ["1", 0], "lora_name": "lora.safetensors", "strength_model": 1.0}}
+    g["3"]["inputs"]["model"] = ["2", 0]
     for nid, title in TITLES.items():
         parts = [t for t in title.split(",") if t not in drop]
         g[nid].setdefault("_meta", {})["title"] = ",".join(parts)

@@ -56,8 +56,11 @@ Top level:
 - `sprite.frame_size` — the square drive-render and animation frame size in pixels (no default).
 - `naming` — the animation-name pattern, with `{character}`, `{animation}` and `{dir}`; default `{animation}_{dir}`. Must produce unique names.
 - `export` — `godot` (the only supported target; default).
-- `seed` — ComfyUI seed for edits and animate (default `0`).
-- `pose_strength` — pose strength for the animate stage (default `1.0`).
+- `seed` — ComfyUI seed for edits and animate (default `0`); same as `animate.seed`, set only one.
+- `pose_strength` — pose strength for the animate stage (default `1.0`); same as `animate.pose_strength`, set only one.
+- `drive` — the drive render: `background` (flat `[r, g, b]` key colour, default `[30, 202, 24]`), `render_size` (square Blender render px, default `1152`), `scale` (frame scale when an animation sets no `drive_scale`, default `0.605`), `margin` (auto-canvas margin over the union body box, default `1.3`) and `aspect` (auto-canvas `[w, h]`, default `[16, 9]`). The canvas is automatic: the union box of the scaled mannequin over every frame of every direction, times `margin`, widened to `aspect`, rounded up to multiples of 16.
+- `reference.height_ratio` — the placed reference's body height over the scaled mannequin's first-frame body height (default `1.07`).
+- `animate` — values for the animate workflow's `sp:<key>` nodes: `unet`, `lora` (`none` removes the `sp:lora` node), `lora_strength`, `sampler`, `scheduler`, `steps`, `shift`, `cfg`, `seed`, `pose_strength`, `pose_start_percent`, `pose_end_percent`, `reference_image_strength`, `negative` (default `camera movement, zoom in, zoom out, pan, tilt, tracking shot, cropped limbs`) and `pose_prompt` (default: the animation's `prompt`). A key left out leaves the workflow's own value; a key set for a workflow without its slot is an error.
 - `output` — output directory, relative to the project file (default `out`).
 - `rig.neck` — the rig's neck bone name (default `DEF-neck`, the Quaternius mannequin).
 - `rig.head` — the rig's head bone name (default `DEF-head`). A drive that lifts the head passes both names to `render_drive.py` as `--neck NAME --head NAME` after the head pitch (without them it uses `DEF-neck` and `DEF-head`); a named bone with no rotation keys on the action fails the drive with an error naming the bone. Drives cached by earlier versions for a rig with other names were rendered without the head lift; delete that project's drives (`<character>-<animation>-<dir>-*`) from `motion_cache` to render them again.
@@ -74,7 +77,7 @@ Top level:
 - `pronoun` — `he`, `she` or `they` (fills the view's face line and turn prompts).
 - `who` — optional pose subject for `{who}` in animation prompts; defaults from the pronoun (`a man`, `a woman`, `a person`).
 - `face_dirs` — optional list of directions that face the camera. Omit it to get the view's camera-facing directions (declared as `face_dirs` in `views/<view>.yaml`) that are in `directions.generate`; an explicit `face_dirs: []` means none (no face line).
-- Animation `canvas` — optional square render size in px (a multiple of 16, at least `sprite.frame_size`). A pose that spreads out, such as a fall, gets a larger canvas at the same pixel scale: the drive camera widens by the same ratio and the reference still is centred on the larger canvas. Export centres smaller frames in the largest cell.
+- `height_scale` — optional map direction → pixelize factor (default `1.0` for any direction not listed); mirrored directions use their source's factor.
 - `describe` may be one string for every direction or a map with one entry per generated direction (`{s: ..., se: ..., e: ..., ne: ..., n: ...}`), so each view can say what shows from that side (no face details on back views, for example). Mirrored directions reuse their source's entry. Every direction also gets the view's `facing` line from `views/<view>.yaml`, which keeps body, head and gaze pointing the same way.
 - `overrides` — optional map `<animation>-<dir>` → `{seed: N, extra: "<prompt line>"}` for rerolls of a specific pair.
 
@@ -94,11 +97,16 @@ Top level:
 - `state` — sprite-gen state for the loop stage: `idle`, `walk`, `run`, `jump` or `attack` (default `attack`).
 - `seam_max` — optional seam-pop cap for the loop stage.
 - `directions` — optional subset of `directions.generate`; defaults to all of them.
+- `drive_scale` — optional; overrides `drive.scale` for this animation.
+- `pixel_scale` — optional pixelize scale (default `sprite.scale / drive scale`).
+- `facing_line` — whether the animate prompt carries the view's facing line (default `true`).
+- `animate` — optional block overriding the project `animate:` keys for this animation.
+- `canvas` — removed; the canvas is automatic, and setting it is an error.
 - `workflow` — optional per-animation override of `workflows.animate` (relative to the project file, like every other path; a missing file fails at the animate stage, naming the path).
 
 Workflow slots:
 
-Each workflow JSON is a ComfyUI API graph. The build fills the nodes titled `sp:<slot>` with the step's values; a slot the step needs but the workflow lacks is an error naming the workflow and the title. The full slot list has twelve slots. The shipped `animate.json` carries eleven: `sp:prompt`, `sp:negative`, `sp:pose_prompt`, `sp:seed`, `sp:ref_image`, `sp:drive_video`, `sp:width`, `sp:height`, `sp:length`, `sp:pose_strength` and `sp:save`. The shipped `edit.json` carries five: `sp:prompt`, `sp:seed`, `sp:ref_image`, `sp:pose_image` (the direction guide, encoded like `sp:ref_image` and chained as a second reference on both conditionings) and `sp:save`; `sp:pose_image` is the twelfth slot, which `animate.json` lacks.
+Each workflow JSON is a ComfyUI API graph. The build fills the nodes titled `sp:<slot>` with the step's values; a slot the step needs but the workflow lacks is an error naming the workflow and the title. The shipped `animate.json` carries `sp:prompt`, `sp:negative`, `sp:pose_prompt`, `sp:seed`, `sp:ref_image`, `sp:drive_video`, `sp:width`, `sp:height`, `sp:length`, `sp:pose_strength`, `sp:save`, `sp:unet`, `sp:sampler`, `sp:scheduler`, `sp:steps`, `sp:shift`, `sp:cfg`, `sp:pose_start_percent`, `sp:pose_end_percent` and `sp:reference_image_strength`, with the distilled Wan Animate 2 model and no LoRA node (`lcm`, `simple`, 10 steps, shift 5, cfg 1.5, pose strength 0.85, seed 7). A workflow with a LoRA node titles it `sp:lora,sp:lora_strength`. The shipped `edit.json` carries five: `sp:prompt`, `sp:seed`, `sp:ref_image`, `sp:pose_image` (the direction guide, encoded like `sp:ref_image` and chained as a second reference on both conditionings) and `sp:save`; `sp:pose_image` is the twelfth slot, which `animate.json` lacks.
 
 ## Stills
 
