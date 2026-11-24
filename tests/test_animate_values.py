@@ -100,7 +100,7 @@ class TestAC9WorkflowValues(unittest.TestCase):
     def test_AC9_r3_unset_value_leaves_input_and_needs_no_slot(self):
         g = titled_graph(drop=("sp:shift",))
         g["3"]["inputs"]["shift"] = 8
-        self.assertEqual(one(lambda d: None, g)["3"]["inputs"]["shift"], 8)
+        self.assertEqual(one(lambda d: d.pop("animate", None), g)["3"]["inputs"]["shift"], 8)
 
     def test_AC9_r4_set_value_without_slot_is_workflow_error(self):
         with self.assertRaises(comfy.WorkflowError) as cm:
@@ -128,11 +128,15 @@ class TestAC9WorkflowValues(unittest.TestCase):
         }
         for key, (value, node, inp) in expected.items():
             with self.subTest(key=key):
-                g = one(set_project(**{key: value}))
+                def edit(d, key=key, value=value):
+                    d.pop("animate", None)
+                    set_project(**{key: value})(d)
+                g = one(edit)
                 self.assertEqual(g[node]["inputs"][inp], value)
 
     def test_AC9_r6_top_level_seed_and_pose_strength_fill_slots(self):
         def edit(d):
+            d.pop("animate", None)
             d["seed"], d["pose_strength"] = 7, 0.6
         g = one(edit)
         self.assertEqual(g["21"]["inputs"]["noise_seed"], 7)
