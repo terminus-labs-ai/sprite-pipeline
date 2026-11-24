@@ -15,13 +15,14 @@ configured path. No stage shells out to POSIX-only commands such as cp
 (dec-617): the drive copy is a Python step.
 """
 import hashlib
+import math
 import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-from sprite_pipeline import config, metrics, project, stills
+from sprite_pipeline import comfy, config, metrics, project, stills
 
 PACKAGE = Path(__file__).resolve().parent
 
@@ -72,6 +73,34 @@ class StageCtx:
         if anim.name not in self._drive_keys:
             self._drive_keys[anim.name] = self.project.drive_key(anim, anim.source.read_bytes())
         return self._drive_keys[anim.name]
+
+    def union_dirs(self, anim, d):
+        """FR 4: the directions whose drives bound the canvas of `anim`: its
+        generated directions, always including `d`."""
+        dirs = list(anim.directions)
+        return dirs if d in dirs else [d, *dirs]
+
+    def canvas(self, char, anim):
+        """FR 4: the (W, H) every direction of `anim` shares, measured from
+        the rendered drive frames of all its directions; None while any of
+        them is not rendered yet."""
+        dirs = [self.frames_dir(char, anim, d) for d in anim.directions]
+        if not dirs or not all(any(f.glob("f*.png")) for f in dirs):
+            return None
+        p = self.project
+        return canvas_for(union_wh(dirs, p.drive_scale(anim)), p.drive.margin, p.drive.aspect)
+
+    def mannequin_f0(self, char, anim, d):
+        """FR 8: the scaled mannequin's f0 bbox (x0, y0, x1, y1, inclusive) on
+        the drive canvas of `anim` facing `d`; None while the drives are not
+        rendered."""
+        if self.canvas(char, anim) is None:
+            return None
+        p = self.project
+        return drive_f0_bbox(self.frames_dir(char, anim, d), p.drive_scale(anim), p.drive.margin,
+                             p.drive.aspect, [self.frames_dir(char, anim, o)
+                                              for o in self.union_dirs(anim, d)],
+                             p.drive.background)
 
     # -- per (character, animation, dir) locations
     def cache_mp4(self, char, anim, d):
@@ -275,14 +304,30 @@ class StageCtx:
             if anim.arm_drop:
                 # the A-pose drop rides only with the mannequin render (amendment 13)
                 argv += ["--arm-drop", str(anim.arm_drop)]
-            if anim.canvas and anim.canvas != p.sprite.frame_size:
-                # a larger canvas widens the camera by the same ratio, so the
-                # mannequin keeps its pixel size and gains room around it
-                argv += [f"res={anim.canvas}", f"ortho={DRIVE_ORTHO * anim.canvas / p.sprite.frame_size:.6f}"]
+            # FR 2: render_size widens the camera by the same ratio, so the
+            # mannequin keeps the frame-size pixel scale and no limb clips
+            size = p.drive.render_size
+            argv += [f"res={size}", f"ortho={DRIVE_ORTHO * size / p.sprite.frame_size:.6f}"]
+            # FR 4: the canvas is the union over every generated direction of
+            # the animation, so a direction whose frames are not rendered yet
+            # is rendered here too (same camera, its own facing)
+            at = argv.index(str(frames))
+            others = [(argv[:at] + [str(self.frames_dir(char, anim, o)), str(FACING[o])] + argv[at + 2:],
+                       "blender")
+                      for o in self.union_dirs(anim, d)
+                      if o != d and not any(self.frames_dir(char, anim, o).glob("f*.png"))]
+            # FR 1, 3, 4: the transparent frames, scaled by the drive scale,
+            # centred on the auto canvas and composited on drive.background:
+            # an in-process step like copy_file
+            keyed = frames.parent / "composited"
+            composite = ("composite_drive", str(frames), str(keyed), f"{p.drive_scale(anim):g}",
+                         *(str(c) for c in p.drive.background), f"{p.drive.margin:g}",
+                         *(str(c) for c in p.drive.aspect),
+                         *(str(self.frames_dir(char, anim, o)) for o in self.union_dirs(anim, d)))
             cache = self.cache_mp4(char, anim, d)
-            cmds = [(argv, "blender"),
+            cmds = [(argv, "blender"), *others, (composite, "composite-drive"),
                     (["ffmpeg", "-v", "error", "-y", "-framerate", str(p.sprite.fps),
-                      "-i", f"{frames}/f%04d.png", "-c:v", "libx264", "-crf", "12",
+                      "-i", f"{keyed}/f%04d.png", "-c:v", "libx264", "-crf", "12",
                       "-pix_fmt", "yuv420p", str(cache)], "ffmpeg")]
             # the copy into ComfyUI's input/ is an in-process step: the marker
             # argv[0] "copy_file" is executed by Python, never spawned (AC8-r3)
@@ -293,32 +338,48 @@ class StageCtx:
             cs = next(c for c in p.characters if c.name == char)
             pose = anim.prompt.replace("{who}", cs.who)
             # FR 2: a character override `<animation>-<dir>` may set the seed
-            seed = (cs.overrides.get(f"{anim.name}-{d}") or {}).get("seed", p.seed)
+            # FR 13: the animation's `animate:` block over the project's;
+            # the override seed keeps precedence over both (Interfaces)
+            vals = {**p.animate, **anim.animate}
+            seed = (cs.overrides.get(f"{anim.name}-{d}") or {}).get("seed", vals.pop("seed", p.seed))
+            pose_strength = vals.pop("pose_strength", p.pose_strength)
             # per-animation workflow override (FR 3): anim.workflow replaces
             # p.workflows["animate"] for that animation; both are absolute,
             # resolved at load (FR 1)
             wf = anim.workflow or p.workflows["animate"]
-            canvas = anim.canvas or p.sprite.frame_size
+            # FR 4, 6: the auto canvas; a dry run planned before the drives it
+            # is measured from exist shows the frame-size square instead
+            w, h = self.canvas(char, anim) or (p.sprite.frame_size, p.sprite.frame_size)
             ref, cmds = str(self.dir_still(char, d)), []
-            if canvas != p.sprite.frame_size:
-                # the reference still at the usual frame size, centred on the
-                # larger canvas: the character keeps its pixel size
-                padded = str(self.work_dir(char, anim, d) / f"ref-{canvas}.png")
-                cmds.append((("pad_ref", ref, padded, str(p.sprite.frame_size), str(canvas)), "pad-ref"))
-                ref = padded
+            f0 = self.mannequin_f0(char, anim, d)
+            if f0 is not None:
+                # FR 8: the direction master placed on the mannequin's f0 on
+                # the drive's canvas; every FR 8 value enters the work path
+                ratio, bg = p.reference.height_ratio, p.drive.background
+                tag = hashlib.sha256(repr((f0, (w, h), ratio, tuple(bg))).encode()).hexdigest()[:12]
+                placed = str(self.work_dir(char, anim, d) / f"ref-{w}x{h}-{tag}.png")
+                cmds.append((("place_ref", ref, placed, *(str(v) for v in f0), str(w), str(h),
+                              f"{ratio:g}", *(str(c) for c in bg)), "place-ref"))
+                ref = placed
             argv = [sys.executable, "-m", "sprite_pipeline.comfy", "animate",
                     "--workflow", str(wf),
                     "--ref", ref, "--video",
                     self.input_mp4(char, anim, d).name,
-                    "--w", str(canvas), "--h", str(canvas),
+                    "--w", str(w), "--h", str(h),
                     "--length", str(anim.clip_frames), "--seed", str(seed),
                     "--prefix", f"{char}/dir8-{anim.name}-{d}",
                     "--copy-to", str(self.clip(char, anim, d)),
                     "--prompt", stills.animate_prompt(
                         project.load_view(p.view), p.style, cs, anim, d),
-                    "--pose-prompt", pose]
-            if p.pose_strength != 1.0:
-                argv += ["--pose-strength", str(p.pose_strength)]
+                    "--pose-prompt", vals.pop("pose_prompt", pose)]
+            if pose_strength != 1.0:
+                argv += ["--pose-strength", str(pose_strength)]
+            if "negative" in vals:  # FR 12
+                argv += ["--negative", vals.pop("negative")]
+            if vals.get("lora") == "none":  # FR 14: no LoRA node, so no strength
+                vals.pop("lora"), vals.pop("lora_strength", None)
+                argv.append("--drop-lora")
+            argv += comfy.set_args(vals)  # FR 13: each set value fills sp:<k>
             return cmds + [(argv, "animate")]
         if stage == "key":
             return sprite_gen_cmds(
@@ -353,12 +414,16 @@ class StageCtx:
         if stage == "pixel":
             argv = [sys.executable, "-m", "sprite_pipeline.pixelize",
                     "--ref", str(self.master(char) / f"{p.still_dir}.keyed.png"),
-                    "--scale", str(p.sprite.scale), "--colors", str(p.sprite.colors),
+                    "--colors", str(p.sprite.colors),
                     "--accent-boost", str(p.sprite.accent_boost), "--fps", str(p.sprite.fps),
                     "--out", str(self.sprite_out(char))]
+            cs = next(c for c in p.characters if c.name == char)
             for d in dirs:  # dir-major, matching batch_dir8.sh's set order
                 for n in anim_names:
-                    argv += ["--set", f"{d}-{n}={self.loops_dir(char, p.animation(n), d) / 'cycle'}"]
+                    anim = p.animation(n)
+                    # FR 9, 10: one scale per set, constant over its clip
+                    argv += ["--set", f"{d}-{n}={self.loops_dir(char, anim, d) / 'cycle'}",
+                             "--set-scale", f"{d}-{n}={p.pixel_scale(anim, cs, d):.6g}"]
             return [(argv, "pixel")]
         if stage == "export":
             return []  # pure python, no subprocess
@@ -399,27 +464,144 @@ def sprite_gen_cmds(*args):
     return [([str(sprite_gen_exe()), *args], "sprite-gen")]
 
 
-def pad_ref(src, dst, frame, canvas, log):
-    """FR 10 (amendment 9): map a still to frame x frame the way the animate
-    workflow does (ImageScale crop=center: the longer side is cropped
-    symmetrically to a square, then the square is scaled to frame x frame,
-    so an 832x1024 still keeps rows 96-927), and centre it on a canvas x
-    canvas image filled with its top-left colour. FR 6 retires the 1280
-    still canvas (`pad_still`); this remains for a larger animation canvas,
-    where the reference keeps the mannequin's pixel size and aspect."""
+def _figure_crop(im):
+    """The figure of a direction master: its alpha bbox when it has
+    transparency, else the pixels differing from the top-left corner (the
+    FR 6 measure, `metrics._figure_bbox`). A master with no figure is
+    placed whole."""
+    import numpy
+
+    if im.mode == "RGBA" and im.getchannel("A").getextrema()[0] < 255:
+        return im.crop(im.getchannel("A").getbbox())
+    rgb = im.convert("RGB")
+    arr = numpy.asarray(rgb, dtype=numpy.int16)
+    box = metrics._figure_bbox(arr, arr[0, 0])
+    return rgb if box is None else rgb.crop((box[0], box[1], box[2] + 1, box[3] + 1))
+
+
+def place_ref(src, dst, mannequin_f0, canvas_wh, ratio, background, log):
+    """FR 8: scale the figure of the direction master `src` so its body
+    height is `ratio` x the mannequin's f0 body height, put its feet on the
+    f0 bottom row, x-centred on the f0 bbox, on a `canvas_wh` canvas filled
+    with `background`. `mannequin_f0` is (x0, y0, x1, y1), inclusive."""
     from PIL import Image
 
-    frame, canvas = int(frame), int(canvas)
-    im = Image.open(src).convert("RGB")
-    w, h = im.size
-    x, y = stills.centre_crop(w, h)
-    im = im.crop((x, y, w - x, h - y)).resize((frame, frame), Image.LANCZOS)
-    out = Image.new("RGB", (canvas, canvas), im.getpixel((0, 0)))
-    off = (canvas - frame) // 2
-    out.paste(im, (off, off))
+    x0, y0, x1, y1 = (int(v) for v in mannequin_f0)
+    w, h = (int(v) for v in canvas_wh)
+    ratio, background = float(ratio), tuple(int(c) for c in background)
+    crop = _figure_crop(Image.open(src).convert("RGBA"))
+    k = ratio * (y1 - y0 + 1) / crop.height
+    crop = crop.resize((round(crop.width * k), round(crop.height * k)), Image.LANCZOS)
+    out = Image.new("RGB", (w, h), background)
+    at = (round((x0 + x1) / 2 - crop.width / 2), y1 + 1 - crop.height)
+    out.paste(crop, at, crop if crop.mode == "RGBA" else None)
     Path(dst).parent.mkdir(parents=True, exist_ok=True)
     out.save(dst)
-    log.append(f"pad_ref {src} -> {dst} ({frame} on {canvas})")
+    log.append(f"place_ref {src} -> {dst} (x{ratio:g} of f0 {x0},{y0},{x1},{y1} on {w}x{h})")
+
+
+def _ceil16(v):
+    return math.ceil(v / 16) * 16
+
+
+def canvas_for(union_wh, margin, aspect):
+    """FR 4: the canvas for a motion whose scaled union bbox is `union_wh`:
+    H = margin x union height, W = max(margin x union width, H x aspect),
+    then H = max(H, W / aspect), each rounded up to a multiple of 16."""
+    uw, uh = union_wh
+    h = _ceil16(margin * uh)
+    w = _ceil16(max(margin * uw, h * aspect[0] / aspect[1]))
+    return w, max(h, _ceil16(w * aspect[1] / aspect[0]))
+
+
+def _union(frame_dirs, scale):
+    """The raw alpha union bbox (x0, y0, x1, y1) of every `f*.png` frame in
+    `frame_dirs`, and the factor `scale` maps raw pixels by (the rounded
+    resize of the frame width). A drive with no opaque pixel bounds its
+    whole frame."""
+    from PIL import Image
+
+    x0 = y0 = math.inf
+    x1 = y1 = 0
+    k = None
+    for fd in frame_dirs:
+        for f in sorted(Path(fd).glob("f*.png")):
+            im = Image.open(f)
+            if k is None:
+                k = round(im.width * scale) / im.width
+            box = im.convert("RGBA").getchannel("A").getbbox() or (0, 0, im.width, im.height)
+            x0, y0, x1, y1 = min(x0, box[0]), min(y0, box[1]), max(x1, box[2]), max(y1, box[3])
+    return (x0, y0, x1, y1), k
+
+
+def union_wh(frame_dirs, scale):
+    """FR 4: (width, height) of the scaled mannequin's union bbox over every
+    frame in `frame_dirs`."""
+    (x0, y0, x1, y1), k = _union(frame_dirs, scale)
+    return (x1 - x0) * k, (y1 - y0) * k
+
+
+def oom_message(proj, anim, d, wh):
+    """FR 5: what `go` prints when ComfyUI ran out of GPU memory animating
+    `anim` facing `d` on the `wh` canvas."""
+    return (f"{anim.name}-{d}: out of GPU memory at {wh[0]}x{wh[1]} "
+            f"(drive_scale {proj.drive_scale(anim):g}); lower "
+            f"animations[{anim.index}].drive_scale in {proj.path.name}")
+
+
+def _drive_layout(scale, margin, aspect, union_dirs):
+    """FR 4: the drive canvas (W, H) and the paste offset every scaled frame
+    of the animation shares; None when no frame is rendered."""
+    (x0, y0, x1, y1), k = _union(union_dirs, float(scale))
+    if k is None:
+        return None
+    w, h = canvas_for(((x1 - x0) * k, (y1 - y0) * k), float(margin), [int(c) for c in aspect])
+    return (w, h), (round(w / 2 - (x0 + x1) / 2 * k), round(h / 2 - (y0 + y1) / 2 * k))
+
+
+def _composite_frame(f, scale, layout, background):
+    """One drive frame resized by `scale` and pasted at the layout's offset
+    on its canvas of the flat `background` colour, as RGB."""
+    from PIL import Image
+
+    (w, h), at = layout
+    im = Image.open(f).convert("RGBA")
+    im = im.resize((round(im.width * scale), round(im.height * scale)), Image.LANCZOS)
+    layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    layer.paste(im, at)
+    return Image.alpha_composite(Image.new("RGBA", (w, h), background + (255,)), layer).convert("RGB")
+
+
+def drive_f0_bbox(src_dir, scale, margin, aspect, union_dirs, background):
+    """FR 8: the bbox (x0, y0, x1, y1, inclusive) of the scaled mannequin in
+    the first frame of `src_dir` as `composite_drive` draws it on
+    `background`, measured the FR 6 way (`metrics._figure_bbox`); None when
+    nothing differs from the background."""
+    import numpy
+
+    bg = tuple(int(c) for c in background)
+    f0 = sorted(Path(src_dir).glob("f*.png"))[0]
+    out = _composite_frame(f0, float(scale), _drive_layout(scale, margin, aspect, union_dirs), bg)
+    return metrics._figure_bbox(numpy.asarray(out, dtype=numpy.int16), numpy.array(bg))
+
+
+def composite_drive(src_dir, dst_dir, scale, background, margin, aspect, union_dirs, log=None):
+    """FR 1, 3, 4: each transparent drive frame `src_dir/f*.png`, resized by
+    `scale` (rounded), placed so the union bbox of every frame in
+    `union_dirs` (all directions of the animation) is centred on the
+    `canvas_for` canvas of the flat `background` colour, and written as RGB
+    to `dst_dir` under the same name."""
+    dst_dir = Path(dst_dir)
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    scale, background = float(scale), tuple(int(c) for c in background)
+    layout = _drive_layout(scale, margin, aspect, union_dirs)
+    if layout is None:  # no frame rendered: nothing to composite
+        return
+    (w, h), _ = layout
+    for f in sorted(Path(src_dir).glob("f*.png")):
+        _composite_frame(f, scale, layout, background).save(dst_dir / f.name)
+    if log is not None:
+        log.append(f"composite_drive {src_dir} -> {dst_dir} (scale {scale:g} on {background}, {w}x{h})")
 
 
 def copy_file(src, dst, log):

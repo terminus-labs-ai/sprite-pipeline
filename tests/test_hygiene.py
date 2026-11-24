@@ -176,19 +176,23 @@ class TestOneElevationDefinition(unittest.TestCase):
                      "head_lift": anim.head_lift,
                      "rig": {"neck": proj.rig["neck"], "head": proj.rig["head"]},
                      "elev": 45, "frame_size": proj.sprite.frame_size,
-                     **({"canvas": anim.canvas} if anim.canvas
-                        and anim.canvas != proj.sprite.frame_size else {})},
+                     "background": list(proj.drive.background),
+                     "render_size": proj.drive.render_size,
+                     "drive_scale": proj.drive_scale(anim),
+                     # death-repro FR 4: the auto canvas's inputs
+                     "margin": 1.3, "aspect": [16, 9],
+                     "directions": ["s", "se", "e", "ne", "n"]},
                     sort_keys=True)
                 return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
-            pinned = {  # drive_key per animation, captured at the base commit
-                "run": "d10a9fa3b7c2ca22", "punch": "af493d1482ff68b6",
-                "idle": "1e10e8d03b0fe447", "walk": "0e2367000fd45664",
-                "sneak": "d0401da6c31b3ef8", "crouch_idle": "c94ac4321f6739f3",
-                "hack": "74b25e3d1e6a612f", "interact": "6cf5dbdfdfb1beaa",
-                "jab": "be3f13aa8e524d9f", "pistol_shoot": "f820df3ea51e1330",
-                "hit": "4d8dfb5d489a1306", "death": "1329fba138e6fccc",
-                "roll": "41d262d0423e92ee",
+            pinned = {  # drive_key per animation with the death-repro drive and canvas values
+                "run": "5a151461d48db9b8", "punch": "36f3951e9daa8226",
+                "idle": "e714381b915861b9", "walk": "24080037937a1790",
+                "sneak": "9a2b0c0e9226f25d", "crouch_idle": "aecf7bd49b03076a",
+                "hack": "66610f0437096705", "interact": "69ef6921df7bf8a1",
+                "jab": "178f1683d0c8dd7b", "pistol_shoot": "e52c97ea3d1c84cb",
+                "hit": "797f9bd98f427199", "death": "0da631f08769fd20",
+                "roll": "1214ea51bf6f15a7",
             }
             self.assertEqual(set(pinned), {a.name for a in p.animations})
             for anim in p.animations:

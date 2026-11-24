@@ -122,7 +122,8 @@ class TestMannequinPlan(unittest.TestCase):
         # the plan's head-lift rule applies: A_TPose is not look_down, so
         # the pitch rides, and the drop follows it
         self.assertEqual(rest[8:], ["25", "--neck", "DEF-neck",
-                                    "--head", "DEF-head", "--arm-drop", "45"])
+                                    "--head", "DEF-head", "--arm-drop", "45",
+                                    "res=1152", "ortho=4.909091"])
         self.assertTrue(Path(shot).is_file())
 
     def test_r2_drive_key_differs_with_the_drop(self):
@@ -134,7 +135,7 @@ class TestMannequinPlan(unittest.TestCase):
         # the key without the drop is the pre-amendment-13 key, computed
         # independently over the pre-amendment-13 payload (a drop-only
         # change to the payload cannot reproduce it)
-        self.assertEqual(without, "1d3a60e8f659197b")
+        self.assertEqual(without, "aed88cd035dab391")
 
     def test_r3_animation_plans_carry_no_arm_drop(self):
         with tempfile.TemporaryDirectory() as t:
@@ -150,8 +151,8 @@ class TestMannequinPlan(unittest.TestCase):
 
     def test_r4_drive_key_equals_the_pre_amendment_13_value(self):
         """r4: every animation's drive key equals the hash of the exact
-        pre-amendment-13 payload (no `arm_drop` member, the conditional
-        `canvas` member only). The keys were captured at the base commit
+        pre-amendment-13 payload (no `arm_drop` member; death-repro FR 4's
+        margin, aspect and directions). The keys were captured at the base commit
         e142de5 for the test_hygiene fixture (examples/isometric with its
         stills and GLB stubbed); test_hygiene pins the same keys."""
         with tempfile.TemporaryDirectory() as t:
@@ -171,19 +172,23 @@ class TestMannequinPlan(unittest.TestCase):
                      "rig": {"neck": p.rig["neck"], "head": p.rig["head"]},
                      "elev": stages.DRIVE_ELEV,
                      "frame_size": p.sprite.frame_size,
-                     **({"canvas": anim.canvas} if anim.canvas
-                        and anim.canvas != p.sprite.frame_size else {})},
+                     "background": list(p.drive.background),
+                     "render_size": p.drive.render_size,
+                     "drive_scale": p.drive_scale(anim),
+                     # death-repro FR 4: the auto canvas's inputs
+                     "margin": 1.3, "aspect": [16, 9],
+                     "directions": ["s", "se", "e", "ne", "n"]},
                     sort_keys=True)
                 return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
-            pinned = {  # Project.drive_key per animation at e142de5
-                "run": "d10a9fa3b7c2ca22", "punch": "af493d1482ff68b6",
-                "idle": "1e10e8d03b0fe447", "walk": "0e2367000fd45664",
-                "sneak": "d0401da6c31b3ef8", "crouch_idle": "c94ac4321f6739f3",
-                "hack": "74b25e3d1e6a612f", "interact": "6cf5dbdfdfb1beaa",
-                "jab": "be3f13aa8e524d9f", "pistol_shoot": "f820df3ea51e1330",
-                "hit": "4d8dfb5d489a1306", "death": "1329fba138e6fccc",
-                "roll": "41d262d0423e92ee",
+            pinned = {  # Project.drive_key per animation with the death-repro drive and canvas values
+                "run": "5a151461d48db9b8", "punch": "36f3951e9daa8226",
+                "idle": "e714381b915861b9", "walk": "24080037937a1790",
+                "sneak": "9a2b0c0e9226f25d", "crouch_idle": "aecf7bd49b03076a",
+                "hack": "66610f0437096705", "interact": "69ef6921df7bf8a1",
+                "jab": "178f1683d0c8dd7b", "pistol_shoot": "e52c97ea3d1c84cb",
+                "hit": "797f9bd98f427199", "death": "0da631f08769fd20",
+                "roll": "1214ea51bf6f15a7",
             }
             self.assertEqual(set(pinned), {a.name for a in proj.animations})
             for anim in proj.animations:

@@ -211,7 +211,7 @@ class ReviewFixture(Env):
             return
         frames = Path(argv[argv.index("--") + 3])
         frames.mkdir(parents=True, exist_ok=True)
-        (frames / "f0000.png").write_bytes(TINY_PNG)
+        Image.new("RGBA", (4, 4), (0, 0, 0, 0)).save(frames / "f0000.png")
 
     def _produce_drive(self, argv):
         dst = Path(argv[-1])

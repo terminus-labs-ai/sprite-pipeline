@@ -18,6 +18,8 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
+from PIL import Image
+
 import mannequins
 
 from sprite_pipeline import cli, config, project, stages
@@ -151,7 +153,8 @@ class ProjectFixture:
         master = self.base / "out" / character / "master"
         master.mkdir(parents=True, exist_ok=True)
         for d in dirs:
-            (master / f"{d}.png").write_bytes(TINY_PNG)
+            # a valid PNG: the animate stage pads it onto the auto canvas
+            Image.new("RGB", (8, 8), (0, 200, 0)).save(master / f"{d}.png")
         for _ in range(2):
             code = cli.main(["approve", str(self.project), character])
             assert code == 0, f"approve exited {code}"
@@ -219,8 +222,10 @@ class TestDryRunApproved(Env):
         self.assertEqual(code, 0, out)
         for stage in ("animate", "key", "loop"):
             self.assertEqual(len(re.findall(rf"\] stage={stage} \(cmd\)  ", out)), 13 * 5, stage)
-        # the drive stage plans three steps per pair: blender, ffmpeg, python copy
-        self.assertEqual(len(re.findall(r"\] stage=drive \(cmd\)  ", out)), 13 * 5 * 2)
+        # the drive stage plans per pair: blender (its own direction plus,
+        # before any is rendered, the other four the FR 4 canvas spans),
+        # ffmpeg, python copy
+        self.assertEqual(len(re.findall(r"\] stage=drive \(cmd\)  ", out)), 13 * 5 * (5 + 1))
         self.assertEqual(len(re.findall(r"\] stage=drive \(python copy\)  ", out)), 13 * 5)
         self.assertEqual(len(re.findall(r"stage=pixel", out)), 1)
         self.assertEqual(len(re.findall(r"stage=export", out)), 1)
@@ -298,7 +303,8 @@ class TestNarrowingFlags(Env):
         self.assertEqual(code, 0, out)
         for stage in ("animate", "key", "loop"):
             self.assertEqual(len(re.findall(rf"\] stage={stage} \(cmd\)  ", out)), 1, stage)
-        self.assertEqual(len(re.findall(r"\] stage=drive \(cmd\)  ", out)), 2)
+        # five blender renders (FR 4: the canvas spans every direction) + ffmpeg
+        self.assertEqual(len(re.findall(r"\] stage=drive \(cmd\)  ", out)), 6)
         self.assertEqual(len(re.findall(r"\] stage=drive \(python copy\)  ", out)), 1)
         self.assertIn("[run/se]", out)
         for d in ("s", "e", "ne", "n"):
@@ -560,7 +566,7 @@ class TestNoPosixShellingOut(Env):
                                   "--animations", "run", "--dirs", "s"])
         self.assertEqual(code, 0, out)
         drive_cmds = [l for l in out.splitlines() if "] stage=drive (cmd)  " in l]
-        self.assertEqual(len(drive_cmds), 2)  # blender + ffmpeg only
+        self.assertEqual(len(drive_cmds), 6)  # blender x5 (FR 4 union) + ffmpeg only
         self.assertTrue(all(" cp " not in l for l in drive_cmds))
         copy_lines = [l for l in out.splitlines() if "] stage=drive (python copy)  " in l]
         self.assertEqual(len(copy_lines), 1)
@@ -750,7 +756,7 @@ class TestExecution(Env):
         if "render_drive.py" in " ".join(argv):
             frames = Path(argv[argv.index("--") + 3])
             frames.mkdir(parents=True, exist_ok=True)
-            (frames / "f0000.png").write_bytes(TINY_PNG)
+            Image.new("RGBA", (4, 4), (0, 0, 0, 0)).save(frames / "f0000.png")
         elif argv[0] == "ffmpeg":
             dst = Path(argv[-1])
             dst.parent.mkdir(parents=True, exist_ok=True)
@@ -763,9 +769,10 @@ class TestExecution(Env):
                                   "--dirs", "s", "--stage", "drive"], fake=fake)
         self.assertEqual(code, 0, out)
         self.assertRegex(out, r"run/s\] drive=ok")
-        self.assertEqual(Path(fake.calls[0][0]).name, "blender")
-        self.assertEqual(fake.calls[1][0], "ffmpeg")
-        self.assertEqual(len(fake.calls), 2)  # the copy is Python, not a subprocess
+        # FR 4: blender renders all five directions the canvas spans
+        self.assertEqual([Path(c[0]).name for c in fake.calls[:5]], ["blender"] * 5)
+        self.assertEqual(fake.calls[5][0], "ffmpeg")
+        self.assertEqual(len(fake.calls), 6)  # the copy is Python, not a subprocess
         copied = self.home / "comfyui" / "input"
         self.assertEqual(len(list(copied.glob("drive-courier-run-s-*.mp4"))), 1)
         self.assertEqual(list(copied.glob("drive-courier-run-s-*.mp4"))[0].read_bytes(),
@@ -800,7 +807,7 @@ class TestExecution(Env):
                          [sys.executable, "-m", "sprite_pipeline.comfy", "animate"])
         self.assertTrue(argv[argv.index("--video") + 1].startswith("drive-courier-run-s"))
         self.assertEqual(argv[argv.index("--copy-to") + 1], str(clip / "run-s.mp4"))
-        self.assertEqual(argv[argv.index("--pose-strength") + 1], "0.75")
+        self.assertEqual(argv[argv.index("--pose-strength") + 1], "0.85")
         self.assertIn("head up", argv[argv.index("--pose-prompt") + 1])
 
 
@@ -868,7 +875,7 @@ class TestPairStatusKeyError(Env):
             if "render_drive.py" in " ".join(argv):
                 frames = Path(argv[argv.index("--") + 3])
                 frames.mkdir(parents=True, exist_ok=True)
-                (frames / "f0000.png").write_bytes(TINY_PNG)
+                Image.new("RGBA", (4, 4), (0, 0, 0, 0)).save(frames / "f0000.png")
             elif argv[0] == "ffmpeg":
                 dst = Path(argv[-1])
                 dst.parent.mkdir(parents=True, exist_ok=True)
@@ -898,6 +905,24 @@ class TestPairStatusKeyError(Env):
         self.assertRegex(out, r"run/s\] drive=FAIL")
         self.assertIn("summary", out)
         self.assertNotIn("KeyError", out)
+
+
+class TestAC4AnimateRealSize(Env):
+    """death-repro FR 6: the animate argv carries the auto canvas's W and H;
+    the reference is placed on the mannequin's f0 on that canvas (FR 8)."""
+
+    def test_r1_auto_canvas_576x336_for_death_se(self):
+        f = ProjectFixture(self.tmp)
+        p = project.load_project(f.project)
+        ctx = stages.StageCtx(p, config.load())
+        ctx.canvas = lambda char, anim: (576, 336)  # the FR 4 canvas (tested in test_canvas)
+        ctx.mannequin_f0 = lambda char, anim, d: (250, 100, 350, 300)
+        cmds = ctx.plan_pair("courier", p.animation("death"), "se", "animate")
+        place, argv = cmds[0][0], cmds[-1][0]
+        self.assertEqual(argv[argv.index("--w"):argv.index("--w") + 4], ["--w", "576", "--h", "336"])
+        self.assertEqual(place[0], "place_ref")
+        self.assertEqual(place[3:], ("250", "100", "350", "300", "576", "336", "1.07", "30", "202", "24"))
+        self.assertEqual(argv[argv.index("--ref") + 1], place[2])
 
 
 if __name__ == "__main__":

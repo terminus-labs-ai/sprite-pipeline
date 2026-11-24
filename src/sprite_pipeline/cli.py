@@ -30,7 +30,7 @@ import shutil
 import subprocess
 import sys
 
-from sprite_pipeline import config, metrics, project, stages, stills
+from sprite_pipeline import comfy, config, metrics, project, stages, stills
 
 
 def _narrow(values, allowed, flag):
@@ -128,8 +128,13 @@ def _print_plan_line(char, stage, argv, out):
     if argv[0] == "copy_file":  # in-process step, never a subprocess
         print(f"[{char}] stage={stage} (python copy)  {argv[1]} -> {argv[2]}", file=out)
         return
-    if argv[0] == "pad_ref":  # in-process step, never a subprocess
-        print(f"[{char}] stage={stage} (python pad {argv[3]} on {argv[4]})  {argv[1]} -> {argv[2]}", file=out)
+    if argv[0] == "composite_drive":  # in-process step, never a subprocess
+        print(f"[{char}] stage={stage} (python composite scale {argv[3]} on {','.join(argv[4:7])})  "
+              f"{argv[1]} -> {argv[2]}", file=out)
+        return
+    if argv[0] == "place_ref":  # in-process step, never a subprocess
+        print(f"[{char}] stage={stage} (python place x{argv[9]} on {argv[7]}x{argv[8]})  "
+              f"{argv[1]} -> {argv[2]}", file=out)
         return
     print(f"[{char}] stage={stage} (cmd)  "
           + " ".join(stages.quote(a) for a in argv), file=out)
@@ -324,8 +329,13 @@ def run_cmds(ctx, cmds, log, out=None):
         if cmd_argv[0] == "copy_file":
             stages.copy_file(cmd_argv[1], cmd_argv[2], log)
             continue
-        if cmd_argv[0] == "pad_ref":
-            stages.pad_ref(*cmd_argv[1:], log)
+        if cmd_argv[0] == "composite_drive":
+            stages.composite_drive(cmd_argv[1], cmd_argv[2], cmd_argv[3], cmd_argv[4:7],
+                                   cmd_argv[7], cmd_argv[8:10], cmd_argv[10:], log)
+            continue
+        if cmd_argv[0] == "place_ref":
+            stages.place_ref(cmd_argv[1], cmd_argv[2], cmd_argv[3:7], cmd_argv[7:9],
+                             cmd_argv[9], cmd_argv[10:13], log)
             continue
         log.append("$ " + " ".join(stages.quote(x) for x in cmd_argv))
         r = subprocess.run(cmd_argv, env=ctx.env, capture_output=True, text=True)
@@ -723,8 +733,13 @@ def _go(args, out, load_kwargs=None):
                         shutil.rmtree(ctx.frames_dir(char, anim, d), ignore_errors=True)
                         ctx.paths.motion_cache.mkdir(parents=True, exist_ok=True)
                         ctx.paths.comfy_input.mkdir(parents=True, exist_ok=True)
+                    mark = len(log)
                     ok = run_cmds(ctx, cmds, log, out)
                     if not ok:
+                        if s == "animate" and any(comfy.OOM_MARKER in x for x in log[mark:]):
+                            # FR 5: name the animation, its canvas and drive_scale
+                            print(stages.oom_message(proj, anim, d, ctx.canvas(char, anim)),
+                                  file=sys.stderr)
                         row[s] = "FAIL"
                         failed.append(f"{n}/{d} {s}")
                         break

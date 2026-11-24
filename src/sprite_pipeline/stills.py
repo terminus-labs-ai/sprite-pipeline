@@ -299,15 +299,17 @@ def dir_prompt(turn, d, pronoun):
 
 def animate_prompt(view, style, char, anim, d):
     """The animate step's --prompt: the character's look (describe, project
-    style, the view's camera line), the view's facing line for the direction,
+    style, the view's camera line), the view's facing line for the direction
+    (unless the animation sets `facing_line: false`, FR 11),
     the view's face line for a face direction only, the view's background
     line, then the character's override `extra` for the `<animation>-<dir>`
     pair. The look is the character's describe text for direction `d`."""
     forms = pronoun_forms(char.pronoun)
     face = d in char.face_dirs
     look = char.look(d)
-    parts = [look.rstrip(". "), style.rstrip(". "), view["camera"].format(**forms),
-             view["facing"][d].format(**forms)]
+    parts = [look.rstrip(". "), style.rstrip(". "), view["camera"].format(**forms)]
+    if anim.facing_line:  # FR 11
+        parts.append(view["facing"][d].format(**forms))
     parts = [x if x.endswith(".") else x + "." for x in parts if x]
     if face:
         parts.append(view["face"].format(**forms))

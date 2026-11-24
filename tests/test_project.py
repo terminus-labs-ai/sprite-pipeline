@@ -297,7 +297,7 @@ class TestExampleProject(unittest.TestCase):
         "jab": ("Punch_Jab", 1, 4, 4, 25, 29, 0, 29, False, "attack", 0.0, "{who} throwing a fast straight jab punch"),
         "pistol_shoot": ("Pistol_Shoot", 1, 3, 3, 25, 21, 0, 21, False, "attack", 0.0, "{who} firing a pistol with one hand"),
         "hit": ("Hit_Chest", 1, 2, 3, 0, 13, 0, 13, False, "attack", 0.0, "{who} taking a hit to the chest and flinching back"),
-        "death": ("Death01", 1, 0, 3, 0, 61, 0, 61, False, "attack", 0.0, "{who} falling to the ground and staying down"),
+        "death": ("Death01", 1, 0, 3, 0, 65, 0, 61, False, "attack", 0.0, "{who} falling to the ground and staying down"),
         "roll": ("Roll", 1, 2, 0, 0, 37, 2, 35, True, "attack", 0.0, "{who} rolling forward on the ground"),
     }
 
@@ -327,6 +327,8 @@ class TestExampleProject(unittest.TestCase):
                    m["clip_length"], m["loop_start"], m["loop_length"],
                    m["loop_mode"] == "fixed", m["state"], float(m.get("seam_max") or 0),
                    m["pose_prompt"])
+            if name == "death":  # dec-823: death clip_frames 61 -> 65 since the library
+                exp = exp[:5] + (65,) + exp[6:]
             self.assertEqual(self.EXPECTED[name], exp, name)
         with tempfile.TemporaryDirectory() as t:
             proj, base = self._stubbed_example(t)
@@ -356,7 +358,7 @@ class TestExampleProject(unittest.TestCase):
             self.assertEqual(proj.sprite.scale, 0.2023)
             self.assertEqual(proj.rig, {"neck": "DEF-neck", "head": "DEF-head"})
             self.assertEqual(proj.seed, 7)
-            self.assertEqual(proj.pose_strength, 0.75)
+            self.assertEqual(proj.pose_strength, 0.85)
 
 
 class TestFaceDirs(unittest.TestCase):
@@ -458,6 +460,33 @@ class TestViewPreset(unittest.TestCase):
             with self.assertRaises(project.ProjectError) as cm:
                 project.load_view("noman", views_dir=Path(t))
             self.assertIn("no preset views/noman.yaml", str(cm.exception))
+
+
+class TestAC4CanvasKeyRemoved(unittest.TestCase):
+    """death-repro FR 7 (dec-821): the canvas is automatic."""
+
+    def test_r2_a_canvas_key_is_a_project_error(self):
+        second = ('\n  - {name: jump, canvas: 1024, source: anims/ual.glb#Jog_Fwd_Loop, '
+                  'frames: 22, clip_frames: 45, prompt: "{who} jumping"}\n')
+        with tempfile.TemporaryDirectory() as t:
+            with self.assertRaises(project.ProjectError) as cm:
+                project.load_project(write_project(t, base_project() + second.lstrip("\n")))
+            self.assertEqual(
+                str(cm.exception),
+                "project.yaml: animations[1].canvas: canvas is now automatic; "
+                "use drive.margin or drive_scale")
+
+    def test_drive_margin_and_aspect_default_and_validate(self):
+        with tempfile.TemporaryDirectory() as t:
+            p = project.load_project(write_project(t, base_project()))
+            self.assertEqual((p.drive.margin, p.drive.aspect), (1.3, (16, 9)))
+        for block, key in (("{margin: 0}", "drive.margin"), ("{aspect: [16]}", "drive.aspect"),
+                           ("{aspect: [16, 0]}", "drive.aspect")):
+            with self.subTest(block=block), tempfile.TemporaryDirectory() as t:
+                text = base_project().replace("\nanimations:", f"\ndrive: {block}\nanimations:")
+                with self.assertRaises(project.ProjectError) as cm:
+                    project.load_project(write_project(t, text))
+                self.assertIn(f"project.yaml: {key}:", str(cm.exception))
 
 
 if __name__ == "__main__":
