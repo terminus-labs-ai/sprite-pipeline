@@ -55,7 +55,7 @@ EDIT_DIRS = ["se", "e", "ne", "n"]  # the generated directions that are not s
 
 # the review prompt's framing, copied from the new-kit pattern (FR 7): the
 # whole string is stated independently of production code, as in test_review.py
-TAIL = " Full body, plain flat pure green background, no shadow."
+TAIL = " Full body, plain flat pure magenta background, no shadow."
 OBJ = {"he": "him", "she": "her", "they": "them"}
 POS = {"he": "his", "she": "her", "they": "their"}
 

@@ -6,7 +6,7 @@ Case-table rows (sprite-pipeline-44):
 
 - AC15-r1: `anchor` on a synthetic 500x900 still (flat background, body bbox
   300 px tall x 200 wide, feet 10 px from the frame bottom) yields the 832x1024
-  master on flat chroma green (31, 203, 25) whose measured body height is the
+  master on flat chroma magenta (255, 0, 255) whose measured body height is the
   profile's `s` target (frame_size 704: dirs.s.body_h x 832 / frame_size =
   391, floor floor_y x 832 / frame_size + 96 = 715), centred on x 416.
 - AC15-r2: the same source at frame_size 1024 measures 269 +/- 1 and floor
@@ -60,8 +60,8 @@ from sprite_pipeline import cli, config, metrics, project, stages, stills
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = ROOT / "examples" / "isometric"
 
-# the flat chroma green of an anchored master (FR 6), stated independently
-CHROMA = (31, 203, 25)
+# the flat chroma magenta of an anchored master (FR 6), stated independently
+CHROMA = (255, 0, 255)
 # the default drive resolution and the packaged female mannequin's `s`
 # geometry (FR 14, amendment 10)
 FRAME = 704
@@ -146,11 +146,11 @@ class AnchorCase(unittest.TestCase):
     # ------------------------------------------------------------------ AC15-r1
     def test_ac15_r1_anchor_is_832x1024_on_flat_green_at_the_profile_target(self):
         """AC15-r1: the 500x900 still anchors to the 832x1024 master on flat
-        chroma green at the FR 6 profile target, centre x 416 (704)."""
+        chroma magenta at the FR 6 profile target, centre x 416 (704)."""
         dst = self._anchor(spec_still(), 704)
         out = Image.open(dst)
         self.assertEqual(out.size, (832, 1024))
-        # every pixel outside the figure is the flat chroma green
+        # every pixel outside the figure is the flat chroma magenta
         self.assertEqual(out.getpixel((0, 0)), CHROMA)
         self.assertEqual(out.getpixel((831, 0)), CHROMA)
         self.assertEqual(out.getpixel((0, 1023)), CHROMA)
@@ -163,7 +163,7 @@ class AnchorCase(unittest.TestCase):
         self.assertAlmostEqual(m["floor_y"], 715, delta=1)
 
     def test_ac15_r1_green_is_the_flat_chroma_colour_everywhere_off_the_figure(self):
-        """Every background pixel of the master is (31, 203, 25) — a corner
+        """Every background pixel of the master is (255, 0, 255) — a corner
         fill or a gradient is not acceptable."""
         import numpy
 

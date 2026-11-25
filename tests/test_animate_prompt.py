@@ -107,7 +107,7 @@ SE_FACING = ("Her body, head and gaze all point toward the lower right of the im
 CAMERA = ("Seen from a high fixed isometric camera looking down at her at about 45 degrees, "
           "small in the frame with empty space around her, full body always inside the frame.")
 BACKGROUND = ("Background description: the background is one perfectly flat uniform "
-              "chroma-key green, no floor, no shadow, no shapes.")
+              "chroma-key magenta, no floor, no shadow, no shapes.")
 
 
 class TestFacingLineSwitch(unittest.TestCase):

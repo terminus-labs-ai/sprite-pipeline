@@ -4,7 +4,7 @@ Retargeted from the retired fill-fit / 1280 reference canvas to anchored
 preparation: `stills.anchor` scales a standing-figure still so its measured
 body height equals the mannequin profile's body target on the 832x1024 edit
 canvas, pins its feet to the floor line and centres it on x 416, with every
-other pixel flat chroma green (31, 203, 25). There is no 1280 canvas
+other pixel flat chroma magenta (255, 0, 255). There is no 1280 canvas
 anymore.
 
 The expected numbers are stated independently of production code, as the
@@ -22,8 +22,8 @@ from PIL import Image
 import mannequins
 from sprite_pipeline import metrics, stills
 
-# the flat chroma green of an anchored master (FR 6)
-CHROMA = (31, 203, 25)
+# the flat chroma magenta of an anchored master (FR 6)
+CHROMA = (255, 0, 255)
 # the test mannequin profile (tests/mannequins.py's canonical stub): the
 # packaged ual-female.glb per-direction geometry at the 704 drive resolution;
 # the master anchors against its `s` entry (331 / 524)
@@ -65,13 +65,13 @@ def _anchor(path, frame_size=704):
 
 
 class TestStillPreparation(unittest.TestCase):
-    """AC15-r1: the anchored master is 832x1024 on flat chroma green, with the
+    """AC15-r1: the anchored master is 832x1024 on flat chroma magenta, with the
     figure scaled to the profile body target, feet on the floor line and
     centred on x 416."""
 
     def test_r1_500x900_still_anchors_to_the_profile_target(self):
         """AC15-r1 (retargeted): the 500x900 standing still anchors to the
-        832x1024 master on flat chroma green (31, 203, 25): measured body
+        832x1024 master on flat chroma magenta (255, 0, 255): measured body
         391.2 +/- 1, floor 715.27 +/- 1, centre x 416 at the default frame
         size 704."""
         with tempfile.TemporaryDirectory() as tmp:
@@ -79,7 +79,7 @@ class TestStillPreparation(unittest.TestCase):
             src = _standing_still(tmp / "src.png")
             dst = _anchor(src)
             out = Image.open(dst)
-            # 832x1024 master, flat chroma green everywhere the figure is not
+            # 832x1024 master, flat chroma magenta everywhere the figure is not
             self.assertEqual(out.size, (832, 1024))
             self.assertEqual(out.getpixel((0, 0)), CHROMA)
             self.assertEqual(out.getpixel((831, 0)), CHROMA)
@@ -95,7 +95,7 @@ class TestStillPreparation(unittest.TestCase):
 
     def test_r2_832x1024_still_anchors_unscaled_in_size(self):
         """AC15-r2 (retargeted): a standing still exactly 832x1024 anchors to
-        the 832x1024 master on flat chroma green, scaled to the profile target
+        the 832x1024 master on flat chroma magenta, scaled to the profile target
         (no 1280 padding at any point)."""
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
@@ -138,7 +138,7 @@ class TestStillPreparation(unittest.TestCase):
             self.assertAlmostEqual(m["centre_x"], 416, delta=1)
 
     def test_r1_green_is_flat_everywhere_off_the_figure(self):
-        """Every background pixel of the master is (31, 203, 25) — a corner
+        """Every background pixel of the master is (255, 0, 255) — a corner
         fill or a gradient is not acceptable."""
         import numpy
 
@@ -162,7 +162,7 @@ class TestPrepareUnchangedAndFit(unittest.TestCase):
     def test_prepare_output_identical_to_pre_refactor(self):
         """The retired fill-fit/1280 surface is gone: `prepare` and `fit` no
         longer exist, the 1280 canvas is retired and the edit canvas is
-        832x1024 on flat chroma green."""
+        832x1024 on flat chroma magenta."""
         self.assertFalse(hasattr(stills, "prepare"))
         self.assertFalse(hasattr(stills, "fit"))
         self.assertFalse(hasattr(stills, "REF_SIZE"))

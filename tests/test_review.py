@@ -53,7 +53,7 @@ EDIT_DIRS = ["se", "e", "ne", "n"]  # the generated directions that are not s
 # the review prompt's framing, copied from the new-kit pattern (FR 7): the
 # AC row pins the whole string, so it is stated here independently of stills.py
 STYLE = "hand-painted cel shading, bold dark outlines, crisp edges"
-TAIL = " Full body, plain flat pure green background, no shadow."
+TAIL = " Full body, plain flat pure magenta background, no shadow."
 OBJ = {"he": "him", "she": "her", "they": "them"}
 POS = {"he": "his", "she": "her", "they": "their"}
 

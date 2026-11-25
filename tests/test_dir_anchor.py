@@ -10,13 +10,13 @@ other direction, `--pose-image master/<d>.guide.png` and the guide line
 appended to the prompt (ComfyUI faked at subprocess.run), keeps the raw
 output as `master/<d>.edit.png` and re-anchors it to `master/<d>.png`
 without the standing-figure rule. The guide's silhouette includes every
-region it fully encloses (amendment 11): no chroma green is left inside the
+region it fully encloses (amendment 11): no chroma magenta is left inside the
 mannequin.
 
 The expected targets are stated literally from the stub profile (the female
 values in tests/mannequins.py) on the 832x1024 canvas at frame size 704:
 body / floor s 391.2 / 715.3, se 433.7 / 724.7, e 471.5 / 725.9, ne 418.4 /
-727.1, n 361.6 / 715.3; centre x 416; chroma green (31, 203, 25).
+727.1, n 361.6 / 715.3; centre x 416; chroma magenta (255, 0, 255).
 """
 import io
 import json
@@ -35,7 +35,7 @@ from test_review import EDIT_DIRS, FakeRun, ReviewFixture
 from sprite_pipeline import metrics, stills
 
 ROOT = Path(__file__).resolve().parent.parent
-GREEN = (31, 203, 25)
+GREEN = (255, 0, 255)
 # body / floor on the 832x1024 canvas at 704, per direction (case table):
 # dirs.<d>.body_h x 832 / 704 and dirs.<d>.floor_y x 832 / 704 + 96 over the
 # stub profile (mannequins.DIRS)
@@ -177,7 +177,7 @@ def grey_render(bg, fig, body_h, floor_y, centre_x=300, res=704):
 
 class TestGuidePlacement(GuidedFixture):
     """AC18-r2: a synthetic grey mannequin render for e places as
-    `master/e.guide.png` — 832x1024 on chroma green, body 384.4 ± 1, floor
+    `master/e.guide.png` — 832x1024 on chroma magenta, body 384.4 ± 1, floor
     725.9 ± 1, centre x 416 ± 1 — both through `stills.guide` and through a
     `go` run's real render path (Blender faked). AC18-r3: a figure only 6
     levels off its grey background pastes whole."""
@@ -191,7 +191,7 @@ class TestGuidePlacement(GuidedFixture):
             self.assertEqual(stills.guide(render, dst, 704, mannequins.profile(), "e"), dst)
             self.assert_on_target(dst, "e")
             arr = numpy.asarray(Image.open(dst).convert("RGB"))
-            # every pixel is chroma green or the render's grey figure
+            # every pixel is chroma magenta or the render's grey figure
             grey = (arr[..., 0] == arr[..., 1]) & (arr[..., 1] == arr[..., 2])
             green = (arr == GREEN).all(axis=2)
             self.assertTrue((grey | green).all())
@@ -338,7 +338,7 @@ class TestGuideLine(unittest.TestCase):
             with self.subTest(pronoun=pronoun):
                 prompt = stills.dir_prompt(turn, "e", pronoun)
                 self.assertTrue(prompt.endswith(
-                    " Full body, plain flat pure green background, no shadow. " + line),
+                    " Full body, plain flat pure magenta background, no shadow. " + line),
                     prompt)
         he = stills.dir_prompt(turn, "e", "he")
         self.assertIn("draw him", he)

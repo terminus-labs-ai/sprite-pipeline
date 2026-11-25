@@ -74,7 +74,7 @@ class TestAC6PlaceRef(Case):
     def test_rgb_master_on_a_flat_background(self):
         """A master without transparency: the figure is what differs from its corner."""
         src, dst = self.tmp / "rgb.png", self.tmp / "out" / "rgb-ref.png"
-        im = Image.new("RGB", (300, 600), (31, 203, 25))
+        im = Image.new("RGB", (300, 600), (255, 0, 255))
         im.paste(Image.new("RGB", (100, 400), (200, 50, 50)), (100, 100))
         im.save(src)
         stages.place_ref(src, dst, F0, (576, 336), 1.07, GREEN, [])

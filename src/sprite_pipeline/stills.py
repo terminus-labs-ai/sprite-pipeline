@@ -60,7 +60,7 @@ def centre_crop(w: int, h: int) -> tuple[int, int]:
 
 CROP_Y = centre_crop(CANVAS_W, CANVAS_H)[1]
 # the flat chroma background of an anchored master (FR 6)
-CHROMA_GREEN = (31, 203, 25)
+CHROMA_GREEN = (255, 0, 255)  # hot magenta: high contrast against Vexa's palette
 
 # FR 7: a mannequin render's silhouette is every pixel differing from its
 # corner colour by more than this (its grey shading sits close to its grey
@@ -76,7 +76,7 @@ GUIDE_LINE = ("Image 2 is a plain grey mannequin used only as a guide: draw {obj
 # the edit prompt's framing, from the new-kit branch (dir_prompt): the turn
 # prompt keeps the character, camera and style; only the facing changes
 STYLE = "hand-painted cel shading, bold dark outlines, crisp edges"
-TAIL = " Full body, plain flat pure green background, no shadow."
+TAIL = " Full body, plain flat pure magenta background, no shadow."
 
 # pronoun -> (subject, object, possessive, verb suffix: "keep" + "s" for he/she)
 PRONOUNS = {
