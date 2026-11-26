@@ -25,15 +25,16 @@ for o in list(bpy.data.objects):
     if o.name.startswith("Icosphere"):
         bpy.data.objects.remove(o)
 rig = bpy.data.objects["Rig"]
+RIG_HINT = "; set rig: in project.yaml"  # the neck/head bones are configurable; the arms are not
 act = bpy.data.actions[action]
 rig.animation_data_create(); rig.animation_data.action = act
 if hasattr(rig.animation_data, "action_slot") and act.slots:
     rig.animation_data.action_slot = act.slots[0]
-def rotation_fcurves(act, bone):
+def rotation_fcurves(act, bone, hint=""):  # hint: the rig: pointer for a configurable bone
     fcs = [f for bag in act.layers[0].strips[0].channelbags
            for f in bag.fcurves if f.data_path == f'pose.bones["{bone}"].rotation_quaternion']
     if len(fcs) != 4:
-        sys.exit(f"render_drive: bone {bone!r} has no rotation_quaternion fcurves on action {act.name!r}")
+        sys.exit(f"render_drive: bone {bone!r} has no rotation_quaternion fcurves on action {act.name!r}{hint}")
     return sorted(fcs, key=lambda f: f.array_index)
 def pitch_bone(fcs, deg, axis=(1, 0, 0)):
     from mathutils import Quaternion
@@ -43,7 +44,8 @@ def pitch_bone(fcs, deg, axis=(1, 0, 0)):
         for i, f in enumerate(fcs): f.keyframe_points[k].co[1] = q[i]
     for f in fcs: f.update()
 if head_pitch:
-    neck, head = rotation_fcurves(act, bones["--neck"]), rotation_fcurves(act, bones["--head"])
+    neck, head = (rotation_fcurves(act, bones["--neck"], RIG_HINT),
+                  rotation_fcurves(act, bones["--head"], RIG_HINT))
     pitch_bone(neck, -head_pitch / 2); pitch_bone(head, -head_pitch / 2)
 if arm_drop:
     # the A-pose (amendment 13): the arms lower about the bone's local Z axis
