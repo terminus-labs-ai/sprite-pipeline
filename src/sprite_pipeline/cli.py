@@ -436,12 +436,14 @@ def render_mannequin(glb, d="s", cached=False):
             if k != "copy-drive"]
     log = []
     if not run_cmds(ctx, cmds, log):
-        raise SystemExit(f"mannequin-profile: rendering {glb} facing {d} failed")
+        # the render-failure text names the GLB and direction only: the
+        # caller owns any command prefix (sprite-pipeline-51)
+        raise SystemExit(f"rendering {glb} facing {d} failed")
     shots = sorted(frames.glob("f*.png"))
     if not shots:
         # the fake renderer wrote nothing where the plan pointed: nothing to
         # measure, so the render failed
-        raise SystemExit(f"mannequin-profile: no render of {glb} facing {d} "
+        raise SystemExit(f"no render of {glb} facing {d} "
                          f"landed in {frames}")
     # a drive is many frames; the profile's pose is the first held frame
     img = Image.open(shots[0])
@@ -464,9 +466,15 @@ def cmd_mannequin_profile(args, out):
         print(f"mannequin-profile: {glb} not found", file=sys.stderr)
         return 2
     dirs = {}
-    for d in stages.FACING:
-        m = metrics.measure(render_mannequin(glb, d))
-        dirs[d] = {"body_h": m["body_h"], "floor_y": m["floor_y"]}
+    try:
+        for d in stages.FACING:
+            m = metrics.measure(render_mannequin(glb, d))
+            dirs[d] = {"body_h": m["body_h"], "floor_y": m["floor_y"]}
+    except SystemExit as e:
+        # this command reports its failures under its own prefix; the render
+        # helper's text stays plain so other callers (go's guided edit) name
+        # the failure without it (sprite-pipeline-51)
+        raise SystemExit(f"mannequin-profile: {e}")
     entry = {"glb_name": glb.name, "resolution": metrics.DRIVE_RES, "dirs": dirs}
     digest = metrics.glb_sha256(glb)
     path = project.user_profiles_path()

@@ -939,7 +939,9 @@ class TestMannequinProfileCommand(unittest.TestCase):
     def test_ac15_r7_a_direction_without_a_frame_writes_nothing(self):
         """AC15-r7: the real render path where the `ne` render writes no
         frame: the command exits non-zero with a message naming the GLB, and
-        the user file keeps its exact bytes (no partial entry)."""
+        the user file keeps its exact bytes (no partial entry). AC2 (sprite-
+        pipeline-51): that message carries the `mannequin-profile:` prefix —
+        the command owns it — and names the GLB."""
         other = {"glb_name": "other.glb", "resolution": 704,
                  "dirs": {"s": {"body_h": 111, "floor_y": 222}}}
         self.user.parent.mkdir(parents=True, exist_ok=True)
@@ -949,17 +951,25 @@ class TestMannequinProfileCommand(unittest.TestCase):
         code, out = self.run_cli(["mannequin-profile", str(self.glb)])
         self.assertNotEqual(code, 0, out)
         self.assertIn(str(self.glb), out)
+        self.assertIn("mannequin-profile:", out)
         self.assertEqual(self.user.read_bytes(), before)
 
     def test_render_mannequin_fails_loudly_when_no_frame_lands(self):
         """The real render path (Blender faked at subprocess.run to write
-        nothing) reports a failed render instead of measuring nothing."""
+        nothing) reports a failed render instead of measuring nothing. AC2-r2
+        (sprite-pipeline-51): the message names the GLB and the direction and
+        holds no `mannequin-profile:` prefix — prefix ownership moved to the
+        calling command, so `go`'s stage lines stay clean."""
         cli.render_mannequin = self._old_render
         old_run = subprocess.run
         self.addCleanup(setattr, subprocess, "run", old_run)
         subprocess.run = lambda argv, **kw: _Res(0)
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(SystemExit) as cm:
             cli.render_mannequin(self.glb, "ne")
+        msg = str(cm.exception)
+        self.assertIn(str(self.glb), msg)
+        self.assertIn("ne", msg)
+        self.assertNotIn("mannequin-profile:", msg)
 
 
 if __name__ == "__main__":

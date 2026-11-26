@@ -536,6 +536,9 @@ class TestDirectionFailure(GuidedFixture):
         self.assertEqual(code, 1, out)
         self.assertIn(str(self.master / "ne.guide.png"), out)
         self.assertIn("ual.glb", out)
+        # sprite-pipeline-51: the stage-failure line names the guide file and
+        # the source GLB — it carries no mannequin-profile command prefix
+        self.assertNotIn("mannequin-profile", out)
         self.assertFalse((self.master / "ne.png").exists())
         edited = sorted(Path(e[e.index("--copy-to") + 1]).name for e in fake.edit_calls())
         self.assertEqual(edited, ["e.edit.png", "n.edit.png", "se.edit.png"])
