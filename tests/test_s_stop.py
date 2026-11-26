@@ -199,9 +199,16 @@ class TestSReroll(SStopFixture):
             self.assertFalse((self.master / f"{d}.png").exists(), d)
             self.assertFalse((self.master / f"{d}.edit.png").exists(), d)
             self.assertNotEqual(before.get(d), None)
-        # the s guide stays (it is not the still); the cutout re-ran
+        # the s guide stays (it is not the still); the cutout re-ran —
+        # proven from the recorded sprite-gen cutout call, not from
+        # master/s.keyed.png existing
         self.assertTrue((self.master / "s.guide.png").is_file())
-        self.assertTrue((self.master / "s.keyed.png").is_file())
+        cutouts = [c for c in fake.calls if Path(c[0]).name == "sprite-gen"]
+        self.assertEqual(len(cutouts), 1, "\n".join(" ".join(c) for c in cutouts))
+        argv = cutouts[0]
+        self.assertEqual(argv[argv.index("cutout") + 1], str(self.master / "s.png"))
+        self.assertEqual(argv[argv.index("--out") + 1],
+                         str(self.master / "s.keyed.png"))
         self.assertTrue((self.out_char / "s-sheet.png").is_file())
         self.assert_stopped_with_approve_command(code, out)
 
