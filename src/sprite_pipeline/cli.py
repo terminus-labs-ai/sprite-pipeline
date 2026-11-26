@@ -109,6 +109,28 @@ def resolve_run(project_path, args):
     return proj, config.load(), chars, [a.name for a in anims], dirs, rerolls
 
 
+def _s_stop_waits(ctx, char, s_dirs):
+    """Whether the project waits at the `s` stop (FR 8, amendment 12):
+    it generates a direction besides `s` and `s` is unapproved. The `s_dirs`
+    argument names the non-`s` generated directions; each call site keeps
+    its own extra conjuncts (a present `master/s.png`, a not-`--no-stop`
+    run) outside this predicate."""
+    return bool(s_dirs) and not ctx.s_approved(char)
+
+
+def _print_ref_size(ctx, char, d, out):
+    """The advisory size report of one direction still (FR 8, amendment 3):
+    the `[<char>/<d>] ref size <ratio>x[ CHECK]` line and the sheet label.
+    The `s` stop and the full review stop print it for their directions;
+    the same inputs print the same line and label."""
+    ratio = ctx.ref_size(char, d)
+    note = stages.size_note(ratio)
+    size = "n/a" if ratio is None else f"{ratio:.2f}x"
+    flag = " CHECK" if note.endswith("CHECK") else ""
+    print(f"[{char}/{d}] ref size {size}{flag}", file=out)
+    return f"{d} {note}"
+
+
 def _redoes_stills(ctx, char, cs, reroll):
     """Whether `go` prepares this character's stills this run (FR 6, FR 10):
     a stale source (purged and rebuilt), a missing direction still, no
@@ -116,8 +138,7 @@ def _redoes_stills(ctx, char, cs, reroll):
     reaches the `s` stop), or a reroll. The same condition the run loop
     uses."""
     stale = (ctx.project.output_root() / char).is_dir() and ctx.source_stale(char, cs)
-    s_wait = (any(d != "s" for d in ctx.project.generate)
-              and not ctx.s_approved(char))
+    s_wait = _s_stop_waits(ctx, char, [d for d in ctx.project.generate if d != "s"])
     return (stale or bool(ctx.missing_stills(char)) or not ctx.is_approved(char)
             or s_wait or bool(reroll))
 
@@ -304,7 +325,7 @@ def run_stills(ctx, turn, char, reroll, force, log, out, no_stop=False):
             continue
         if dst.is_file() and reroll.get(d) is None and not force:
             continue  # skip-if-exists (FR 10)
-        if s_dirs and not no_stop and not ctx.s_approved(char):
+        if not no_stop and _s_stop_waits(ctx, char, s_dirs):
             # FR 8 (dec-750, dec-755): the `s` stop holds the other
             # direction edits until `s` is approved
             if reroll.get(d) is not None:
@@ -375,9 +396,8 @@ def cmd_approve(args, out, **load_kwargs):
         return 2
     ctx = stages.StageCtx(proj, config.load())
     char = args["character"]
-    if (any(d != "s" for d in proj.generate)
-            and ctx.dir_still(char, "s").is_file()
-            and not ctx.s_approved(char)):
+    if (_s_stop_waits(ctx, char, [d for d in proj.generate if d != "s"])
+            and ctx.dir_still(char, "s").is_file()):
         ctx.write_s_approved(char)
         print(f"[{char}] approved {ctx.s_approved_file(char)}", file=out)
         return 0
@@ -624,7 +644,7 @@ def _go(args, out, load_kwargs=None):
         if dry:
             # --dry-run writes nothing: the FR 1 plan lines plus the verdict
             _print_still_plan(proj, ctx, char, reroll, force, out)
-            if s_dirs and not args["no_stop"] and not ctx.s_approved(char):
+            if not args["no_stop"] and _s_stop_waits(ctx, char, s_dirs):
                 # FR 8 (amendment 12): the `s` stop's verdict comes first
                 stopped.append(char)
                 print(f"[{char}] review stop: s unapproved; after checking "
@@ -641,7 +661,7 @@ def _go(args, out, load_kwargs=None):
                       f"sprite-pipeline approve {args['project_file']} {char}", file=out)
                 continue
         elif not (args["no_stop"] and ctx.is_approved(char)
-                  and (not s_dirs or ctx.s_approved(char)) and not rerolled):
+                  and not _s_stop_waits(ctx, char, s_dirs) and not rerolled):
             # FR 6 + FR 7 + FR 8: still preparation, palette cutout, direction
             # edits, then the review sheets and the stop verdicts.
             stop_now = not ctx.is_approved(char) or rerolled
@@ -649,7 +669,7 @@ def _go(args, out, load_kwargs=None):
             # stage's own commands, never the reviewed stills; redoing a still
             # would invalidate the approval it passed (a reroll does redo it)
             redo_stills = (not five or not ctx.is_approved(char) or rerolled
-                           or (s_dirs and not ctx.s_approved(char)))
+                           or _s_stop_waits(ctx, char, s_dirs))
             if redo_stills:
                 if not run_stills(ctx, project.load_view(proj.view)["turn"], char,
                                   reroll, force, log, out,
@@ -660,19 +680,14 @@ def _go(args, out, load_kwargs=None):
             # `master/s.png` exists and `s.approved` does not hold its
             # sha256, the run reviews the guided `s` before the other
             # directions are edited from it
-            if (s_dirs and not args["no_stop"]
+            if (not args["no_stop"]
                     and ctx.dir_still(char, "s").is_file()
-                    and not ctx.s_approved(char)):
+                    and _s_stop_waits(ctx, char, s_dirs)):
                 sheet = ctx.s_sheet(char)
                 # the advisory size report covers `s` like every direction
-                ratio = ctx.ref_size(char, "s")
-                note = stages.size_note(ratio)
-                size = "n/a" if ratio is None else f"{ratio:.2f}x"
-                flag = " CHECK" if note.endswith("CHECK") else ""
-                print(f"[{char}/s] ref size {size}{flag}", file=out)
                 panels = [(ctx.master(char) / "still.png", "anchored still"),
                           (ctx.guide_file(char, "s"), "s guide"),
-                          (ctx.dir_still(char, "s"), f"s {note}")]
+                          (ctx.dir_still(char, "s"), _print_ref_size(ctx, char, "s", out))]
                 panels = [(p, l) for p, l in panels if p.is_file()]
                 stills.review_sheet([p for p, _ in panels], sheet,
                                     labels=[l for _, l in panels])
@@ -689,14 +704,7 @@ def _go(args, out, load_kwargs=None):
                 shown = [d for d in proj.generate if ctx.dir_still(char, d).is_file()]
                 # amendment 3: the advisory size report, one line per
                 # direction and the ratio on its sheet label; never blocks
-                labels = []
-                for d in shown:
-                    ratio = ctx.ref_size(char, d)
-                    note = stages.size_note(ratio)
-                    labels.append(f"{d} {note}")
-                    size = "n/a" if ratio is None else f"{ratio:.2f}x"
-                    flag = " CHECK" if note.endswith("CHECK") else ""
-                    print(f"[{char}/{d}] ref size {size}{flag}", file=out)
+                labels = [_print_ref_size(ctx, char, d, out) for d in shown]
                 stills.review_sheet([ctx.dir_still(char, d) for d in shown], sheet,
                                     labels=labels)
                 print(f"[{char}] review sheet {sheet}", file=out)
