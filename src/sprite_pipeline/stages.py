@@ -320,7 +320,7 @@ class StageCtx:
         p = self.project
         if stage == "drive":
             frames = self.frames_dir(char, anim, d)
-            argv = ["blender", "-b"]
+            argv = [self.blender, "-b"]
             if self.drive_lsr:
                 argv += [self.drive_lsr]
             argv += ["--python", str(PACKAGE / "render_drive.py"), "--",
