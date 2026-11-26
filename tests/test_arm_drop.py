@@ -382,6 +382,27 @@ class TestRenderDriveArmDrop(unittest.TestCase):
         self.assertIn("render_drive:", text)
         self.assertNotIn("RENDERED", out)
 
+    def test_missing_upper_arm_exit_carries_no_rig_hint(self):
+        # sprite-pipeline-58 AC2: the upper-arm bones are not configurable
+        # through rig: in project.yaml, so their missing-fcurve exit keeps
+        # the plain message (the rig: pointer belongs to the head-lift
+        # path — test_drive_rig_names.py pins that half)
+        for missing in ("DEF-upper_arm.L", "DEF-upper_arm.R"):
+            with self.subTest(missing=missing):
+                present = [b for b in ALL_BONES if b != missing]
+                fcs, out, err, exc = _run_render_drive(
+                    ["run.glb", "Jog_Fwd_Loop", "frames", "0", "45", "1", "1", "0",
+                     "--arm-drop", "45"],
+                    present, action="Jog_Fwd_Loop")
+                self.assertIsNotNone(exc, "render_drive returned normally on a "
+                                          "missing arm bone")
+                self.assertNotIn(exc.code, (0, None))
+                text = _exit_text(exc, err)
+                self.assertIn(missing, text)
+                self.assertIn("Jog_Fwd_Loop", text)
+                self.assertNotIn("set rig", text)
+                self.assertNotIn("RENDERED", out)
+
 
 class TestPackagedProfileNumbers(unittest.TestCase):
     """The packaged profiles are the A-pose values the fixtures measure

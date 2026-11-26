@@ -24,6 +24,7 @@ from sprite_pipeline import project, stages
 
 RENDER_DRIVE = Path(stages.__file__).resolve().parent / "render_drive.py"
 CUSTOM_RIG = "rig: {neck: neck_01, head: head_01}\n"
+RIG_HINT = "; set rig: in project.yaml"
 
 
 def _load(tmp, rig_line=None):
@@ -191,6 +192,21 @@ class TestRenderDriveBones(unittest.TestCase):
         fcs, bpy, out, err, exc = _run_render_drive(args, [])
         self.assertIsNone(exc, err)
         self.assertIn("RENDERED", out)
+
+    def test_missing_bone_exit_points_at_the_rig_config(self):
+        # sprite-pipeline-58 AC1: the neck/head bones come from rig: in
+        # project.yaml, so their missing-fcurve exit message ends with that
+        # pointer (restore the hint --arm-drop's commit dropped for bones)
+        for missing in ("neck_01", "head_01"):
+            with self.subTest(missing=missing):
+                present = [b for b in ("neck_01", "head_01") if b != missing]
+                fcs, bpy, out, err, exc = _run_render_drive(self.planned, present)
+                self.assertIsNotNone(exc, "render_drive returned normally on a missing bone")
+                self.assertNotIn(exc.code, (0, None))
+                text = _exit_text(exc, err)
+                self.assertIn(missing, text)
+                self.assertIn("Jog_Fwd_Loop", text)
+                self.assertTrue(text.rstrip().endswith(RIG_HINT), repr(text))
 
 
 if __name__ == "__main__":
