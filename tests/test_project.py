@@ -489,5 +489,60 @@ class TestAC4CanvasKeyRemoved(unittest.TestCase):
                 self.assertIn(f"project.yaml: {key}:", str(cm.exception))
 
 
+class TestAnchorDirGate(unittest.TestCase):
+    """FR 4 amendment 10 with FR 14's anchor requirement: the profile gate also
+    needs `dirs["s"]`, the anchor direction the go master is keyed off (FR 6),
+    whether or not `s` is generated. A profile without it fails the load with
+    the existing missing-dirs ProjectError instead of crashing the anchor later
+    with KeyError 's'."""
+
+    def profiles_without(self, *skip):
+        """The stub GLB's profile with its `dirs` missing the given directions."""
+        dirs = {d: v for d, v in mannequins.DIRS.items() if d not in skip}
+        return {hashlib.sha256(ASSET).hexdigest(): mannequins.profile(dirs,
+                                                                     glb_name="ual.glb")}
+
+    def test_r1_anchor_direction_s_missing_is_a_project_error(self):
+        # AC2-r1: generate [se, e] — `s` is not generated, so the old gate let
+        # this through; the profile must still carry the anchor direction
+        with tempfile.TemporaryDirectory() as t:
+            with self.assertRaises(project.ProjectError) as cm:
+                project.load_project(write_project(t, base_project(generate="[se, e]",
+                                                                   mirror="{}")),
+                                     profiles=self.profiles_without("s"))
+            msg = str(cm.exception)
+            # the existing missing-dirs message shape: the GLB, the direction,
+            # the sha256 prefix and the mannequin-profile command
+            self.assertIn("has no dirs entry for s;", msg)
+            self.assertIn("ual.glb", msg)
+            self.assertIn(hashlib.sha256(ASSET).hexdigest()[:16], msg)
+            self.assertIn("sprite-pipeline mannequin-profile", msg)
+            self.assertRegex(msg, r"sprite-pipeline mannequin-profile \S*ual\.glb$")
+
+    def test_r2_profile_carrying_s_se_e_loads(self):
+        # AC2-r2: the same project whose profile carries s loads clean
+        with tempfile.TemporaryDirectory() as t:
+            proj = project.load_project(write_project(t, base_project(generate="[se, e]",
+                                                                       mirror="{}")),
+                                        profiles=self.profiles_without())
+            self.assertEqual(proj.generate, ["se", "e"])
+
+    def test_r3_missing_generated_direction_message_unchanged(self):
+        # AC2-r3: the pre-existing case keeps naming the generated direction
+        # only — s is present here, so it must not appear in the list
+        with tempfile.TemporaryDirectory() as t:
+            with self.assertRaises(project.ProjectError) as cm:
+                project.load_project(write_project(t, base_project(generate="[s, se]",
+                                                                   mirror="{}")),
+                                     profiles=self.profiles_without("se"))
+            msg = str(cm.exception)
+            self.assertIn("has no dirs entry for se;", msg)
+            # only the generated direction is listed: s is present, and a
+            # second entry would read "for se, s;" / "for s, se;"
+            self.assertNotIn(", s;", msg)
+            self.assertNotIn("for s;", msg)
+            self.assertIn("sprite-pipeline mannequin-profile", msg)
+
+
 if __name__ == "__main__":
     unittest.main()

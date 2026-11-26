@@ -26,6 +26,9 @@ VIEWS_DIR = Path(__file__).resolve().parent / "views"
 USER_PROFILES_FILE = "mannequin_profiles.json"
 
 KNOWN_DIRS = {"n", "ne", "e", "se", "s", "sw", "w", "nw"}
+# the anchor direction: the go master is keyed off it (FR 6), so every profile
+# must carry a `dirs` entry for it whether or not it is generated (FR 14)
+ANCHOR_DIR = "s"
 VALID_STATES = {"idle", "walk", "run", "jump", "attack"}
 
 # the drive scene's camera elevation: the one definition, used by the drive
@@ -519,9 +522,14 @@ def load_project(path, views_dir=VIEWS_DIR, profiles=None):
                                f"for {src_p.name} (sha256 {digest[:16]}…); "
                                f"run: sprite-pipeline mannequin-profile {src_p}")
         # FR 4 amendment 10: the profile carries `dirs` for every generated
-        # direction (a flat pre-`dirs` profile lacks them all)
+        # direction (a flat pre-`dirs` profile lacks them all), plus the anchor
+        # direction `s` (FR 14): the go master anchor always reads dirs["s"]
+        # (FR 6), so a profile without it must fail here, not as a KeyError
         prof_dirs = profiles[digest].get("dirs")
-        missing = [x for x in generate
+        required = list(generate)
+        if ANCHOR_DIR not in required:
+            required.append(ANCHOR_DIR)
+        missing = [x for x in required
                    if not isinstance(prof_dirs, dict) or x not in prof_dirs]
         if missing:
             raise ProjectError(f"{path.name}: animations[{i}].source: the mannequin profile "
