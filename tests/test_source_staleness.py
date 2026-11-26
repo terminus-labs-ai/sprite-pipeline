@@ -25,8 +25,8 @@ from PIL import Image
 import mannequins
 
 from sprite_pipeline import config, project, stages
-from tests.test_review import (GEN_DIRS, TINY_PNG, ReviewFixture,
-                               make_stub_project)
+from test_review import (GEN_DIRS, TINY_PNG, ReviewFixture,
+                         make_stub_project)
 
 STILL = "stills/courier.png"
 # a *different* valid 2x2 RGBA PNG (every pixel (9,9,9,255)): changed source
