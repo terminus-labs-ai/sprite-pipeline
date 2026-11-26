@@ -482,37 +482,39 @@ def cmd_mannequin_profile(args, out):
     import json
 
     glb = Path(args["glb"])
-    if not glb.is_file():
-        print(f"mannequin-profile: {glb} not found", file=sys.stderr)
-        return 2
-    dirs = {}
     try:
+        if not glb.is_file():
+            raise FileNotFoundError(f"{glb} not found")
+        dirs = {}
         for d in stages.FACING:
             m = metrics.measure(render_mannequin(glb, d))
             dirs[d] = {"body_h": m["body_h"], "floor_y": m["floor_y"]}
-    except SystemExit as e:
-        # this command reports its failures under its own prefix; the render
-        # helper's text stays plain so other callers (go's guided edit) name
-        # the failure without it (sprite-pipeline-51)
-        raise SystemExit(f"mannequin-profile: {e}")
-    entry = {"glb_name": glb.name, "resolution": metrics.DRIVE_RES, "dirs": dirs}
-    digest = metrics.glb_sha256(glb)
-    path = project.user_profiles_path()
-    try:
-        doc = __import__("json").loads(path.read_text())
-        if not isinstance(doc, dict):
+        entry = {"glb_name": glb.name, "resolution": metrics.DRIVE_RES, "dirs": dirs}
+        digest = metrics.glb_sha256(glb)
+        path = project.user_profiles_path()
+        try:
+            doc = json.loads(path.read_text())
+            if not isinstance(doc, dict):
+                doc = {}
+        except (OSError, ValueError):
             doc = {}
-    except (OSError, ValueError):
-        doc = {}
-    profiles = doc.get("profiles")
-    if not isinstance(profiles, dict):
-        profiles = {}
-    profiles[digest] = entry  # last write wins: an existing same-hash entry is replaced
-    doc["profiles"] = profiles
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(doc, indent=2) + "\n")
-    print(json.dumps(entry), file=out)
-    return 0
+        profiles = doc.get("profiles")
+        if not isinstance(profiles, dict):
+            profiles = {}
+        profiles[digest] = entry  # last write wins: an existing same-hash entry is replaced
+        doc["profiles"] = profiles
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(doc, indent=2) + "\n")
+        print(json.dumps(entry), file=out)
+        return 0
+    except (ValueError, OSError, SystemExit) as e:
+        # the command's one owner of the `mannequin-profile:` failure text: a
+        # missing GLB, a failed or empty render, a figure rule, or a write
+        # error all surface here under it; render_mannequin's message stays
+        # plain so other callers (go's guided edit) name the failure without
+        # it (sprite-pipeline-51, -78)
+        print(f"mannequin-profile: {e}", file=sys.stderr)
+        return 2
 
 
 def main(argv=None, out=None, **load_kwargs):
@@ -555,13 +557,9 @@ def main(argv=None, out=None, **load_kwargs):
         return cmd_approve({"project_file": rest[0], "character": rest[1]}, out, **load_kwargs)
 
     if a.command == "mannequin-profile":
-        try:
-            return cmd_mannequin_profile(args, out)
-        except SystemExit:
-            raise
-        except (ValueError, OSError) as e:
-            print(f"mannequin-profile: {e}", file=sys.stderr)
-            return 2
+        # the command owns its own failures (the `mannequin-profile:` prefix
+        # and its exit code); the dispatch adds nothing to them
+        return cmd_mannequin_profile(args, out)
 
     return _go(args, out, load_kwargs)
 
