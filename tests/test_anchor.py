@@ -971,6 +971,33 @@ class TestMannequinProfileCommand(unittest.TestCase):
         self.assertIn("ne", msg)
         self.assertNotIn("mannequin-profile:", msg)
 
+    def test_ac15_r6_a_missing_glb_reports_the_prefix_once(self):
+        """sprite-pipeline-78: the missing-GLB failure has one owner of the
+        `mannequin-profile:` prefix through the real main() dispatch — the
+        whole output is the prefix and the unchanged not-found message
+        exactly once, and the exit code is 2."""
+        code, out = self.run_cli(["mannequin-profile", str(self.tmp / "nope.glb")])
+        self.assertEqual(code, 2, out)
+        self.assertEqual(out.strip(),
+                         f"mannequin-profile: {self.tmp / 'nope.glb'} not found")
+
+    def test_ac15_r7_a_failed_render_reports_the_prefix_once(self):
+        """sprite-pipeline-78: a failed render (the `ne` frame never lands)
+        surfaces under the `mannequin-profile:` prefix exactly once through
+        the real main() dispatch — the handler, not a re-prefix — naming the
+        GLB, exiting non-zero, and the user file keeps its exact bytes."""
+        other = {"glb_name": "other.glb", "resolution": 704,
+                 "dirs": {"s": {"body_h": 111, "floor_y": 222}}}
+        self.user.parent.mkdir(parents=True, exist_ok=True)
+        self.user.write_text(json.dumps({"profiles": {"a" * 64: other}}))
+        before = self.user.read_bytes()
+        self._fake_blender(skip=("ne",))
+        code, out = self.run_cli(["mannequin-profile", str(self.glb)])
+        self.assertNotEqual(code, 0, out)
+        self.assertEqual(out.count("mannequin-profile:"), 1, out)
+        self.assertIn(self.glb.name, out)
+        self.assertEqual(self.user.read_bytes(), before)
+
 
 if __name__ == "__main__":
     unittest.main()
